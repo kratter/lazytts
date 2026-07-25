@@ -1,0 +1,62 @@
+# ── lazyTTS: eBook → Audiobook converter ─────────────────────────────
+# NOTE: install PyTorch SEPARATELY for your GPU before installing this.
+# RTX 50-series (Blackwell / sm_120) needs the cu128 build:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu128
+#
+# IMPORTANT: `pip install -r requirements.txt` in one shot can trigger
+# pip's "resolution-too-deep" error because Kokoro + Qwen + Whisper + Gradio
+# make a huge dependency graph. Prefer setup.bat, which installs in stages.
+# To install manually, install these groups in SEPARATE pip commands:
+#   1) gradio PyMuPDF ebooklib beautifulsoup4 lxml python-docx soundfile numpy pyttsx3 pyinstaller
+#   2) kokoro
+#   3) qwen-tts
+#   4) faster-whisper
+# See README.md for details.
+
+# UI
+gradio>=4.44
+
+# Document parsing
+PyMuPDF>=1.24          # PDF   -> imported as "fitz"
+ebooklib>=0.18         # EPUB
+beautifulsoup4>=4.12   # EPUB HTML stripping
+lxml>=5.0
+python-docx>=1.1       # DOCX
+
+# Audio
+soundfile>=0.12
+numpy>=1.26
+
+# Text normalization (expand numbers/years to spoken words)
+num2words>=0.5.10
+
+# English offline neural TTS (pulls in torch, transformers, misaki)
+kokoro>=0.9.4
+
+# Offline translation (NLLB-200 via transformers, which kokoro already pulls in).
+# sentencepiece backs the NLLB tokenizer.
+sentencepiece>=0.2.0
+
+# Multilingual TTS:
+#   * Meta MMS-TTS (EN/DE/HU) needs NOTHING extra — it runs on the transformers
+#     that kokoro already installs (VitsModel).
+#   * Coqui XTTS-v2 (multilingual + cloning) needs coqui-tts. Heavy & optional;
+#     if it fails to install the app just won't offer the "xtts" engine.
+#     Non-commercial model license (auto-accepted via COQUI_TOS_AGREED).
+coqui-tts>=0.27.0
+# PyTorch ≥2.9 needs torchcodec for audio I/O in coqui-tts (Windows wheel exists;
+# uses the system ffmpeg libraries, which setup.bat installs).
+torchcodec
+
+# Native desktop window (no browser). Uses the Windows WebView2 runtime + pythonnet.
+# If unavailable the app cleanly falls back to opening in the browser.
+pywebview>=5.0
+
+# German (+ more) offline neural TTS — small ONNX voices, runs on CPU
+piper-tts
+
+# Fallback offline TTS (Windows SAPI voices) — always works, no GPU
+pyttsx3>=2.90
+
+# Packaging
+pyinstaller>=6.10

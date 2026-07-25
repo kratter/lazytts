@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# QTTS runtime artifacts
+cache/
+audiobooks/
+book_to_convert/
+hf_cache/
+# Coqui XTTS model cache (~1.8 GB)
+tts_home/
+# per-machine UI prefs + pronunciation lexicon
+settings.json
+lexicon.json
+*.log
+
+# PyInstaller — ignore the whole build work dir, keep only the .spec
+build/*
+!build/*.spec
+dist/
+*.spec.bak
+
+# Installers (built artifacts — distribute via Releases, don't commit)
+installer_out/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Stray Windows reserved-device artifact (can't be a real file)
+nul
