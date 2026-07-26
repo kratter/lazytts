@@ -132,6 +132,9 @@ The **Output** control offers:
   navigation in Apple Books, Audiobookshelf, Smart AudioBook Player, etc.
   Title/author auto-fill from the document and are editable; drop in a cover
   image. Requires ffmpeg.
+- **EPUB 3 read-along (synced text)** — a single `audiobooks\<Book>.epub` that
+  **highlights each sentence as it is spoken**, like subtitles for an audiobook.
+  See below.
 
 Chapters are detected automatically:
 
@@ -143,6 +146,62 @@ Chapters are detected automatically:
 | TXT  | lines like `Chapter 3`, `Part II`, `CHAPTER ONE` |
 
 If no structure is found, the book is treated as a single chapter.
+
+### EPUB 3 read-along (synced text + audio)
+
+Produces one `.epub` containing both the text and the narration, wired together
+with [EPUB 3 Media Overlays](https://www.w3.org/publishing/epub32/epub-mediaoverlays.html)
+so a reader highlights each sentence as it's spoken — useful for following along
+when a word isn't clear, or for language learning.
+
+Because lazyTTS *generates* the audio, the sentence timings are exact: they come
+straight from the synthesized audio's frame counts. There is no transcription and
+no forced alignment, so text and speech cannot drift apart.
+
+**Reading it.** Pick your app under **Read-along target reader**:
+
+| Profile | Audio | Notes |
+|---|---|---|
+| Universal (max compatibility) | m4a | Flat SMIL + EPUB 2 NCX fallback. Start here. |
+| Thorium Reader (desktop) | m4a | Per-paragraph `<seq epub:textref>` structure. |
+| Storyteller (Android / iOS) | mp3 | For the [Storyteller](https://storyteller-platform.dev/) app. |
+
+The differences are small — Media Overlays is one standard — so Universal is
+usually the right choice. Readers known to support Media Overlays: Thorium
+Reader (Windows/macOS/Linux), Thorium Mobile, Storyteller, BookFusion, Dolphin
+EasyReader, and Apple Books. Note that several popular Android readers
+(Moon+ Reader, ReadEra, Librera) and Google Play Books do **not** — they'll open
+the file as a plain ebook with no sync rather than failing.
+
+Storyteller's app can import a local `.epub` directly; its self-hosted server is
+only needed for its own transcribe-and-align pipeline, which lazyTTS replaces.
+
+**Pacing.** The **Gap** slider becomes the pause between *paragraphs*; sentences
+within a paragraph use the shorter `SENTENCE_GAP_SECONDS` (0.15 s) from
+`config.py`. A full gap after every sentence sounds stilted once the synthesis
+unit shrinks from a chunk to a single sentence.
+
+**Limits worth knowing:**
+
+- The ebook is regenerated from extracted plain text, so original formatting
+  (italics, images, footnotes) is not carried over.
+- Chapter titles are not narrated, so the heading doesn't highlight.
+- Silence-trimming is disabled automatically in this mode — it changes audio
+  length and would desynchronize the overlay. Loudness and gain are unaffected.
+- MP3 has a small constant encoder priming offset (~26 ms); m4a does not, which
+  is why the default profiles use it.
+
+**Validation.** Every export is checked automatically: SMIL references must
+resolve to real sentence spans, clip ranges must be ordered and non-overlapping,
+and the manifest wiring must be complete. The result appears in the status line.
+
+For full spec conformance you can also install the official
+[EPUBCheck](https://github.com/w3c/epubcheck) (needs Java). It's optional — when
+absent, the built-in structural check still runs. Enable it any of these ways:
+
+- drop `epubcheck.jar` next to the app (same trick as ffmpeg), or
+- set `EPUBCHECK_JAR=C:\path\to\epubcheck.jar`, or
+- put an `epubcheck` launcher on `PATH`.
 
 ---
 
@@ -197,6 +256,8 @@ lazyTTS/
    ├─ chunker.py          # sentence-aware chunking
    ├─ converter.py        # orchestration + caching + progress
    ├─ audio.py            # ffmpeg concat -> mp3/m4a/opus/flac/wav/m4b
+   ├─ epub3.py            # EPUB 3 + Media Overlays writer (read-along)
+   ├─ epubcheck.py        # structural validation (+ optional EPUBCheck)
    ├─ textnorm.py         # de-hyphenation, number/abbr expansion (multi-lang)
    ├─ translate.py        # offline NLLB-200 translation
    ├─ lexicon.py          # user pronunciation replacements

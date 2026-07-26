@@ -52,7 +52,53 @@ CHUNK_CHARS = {
 }
 
 # Silence inserted between chunks (seconds) for natural pacing.
-CHUNK_GAP_SECONDS = 0.35
+CHUNK_GAP_SECONDS = 0.5
+
+# ── EPUB 3 read-along (Media Overlays) ────────────────────────────
+# Silence between sentences *inside* a paragraph. The main `gap` setting is
+# used between paragraphs instead, so prose doesn't get a full pause after
+# every sentence (which is what a single uniform gap would give us once the
+# synthesis unit shrinks from a 1500-char chunk to one sentence).
+SENTENCE_GAP_SECONDS = 0.15
+
+# Reader compatibility profiles for the EPUB 3 export. The format is one
+# standard; these knobs cover where readers actually differ in practice.
+#   active_class  -> value of media:active-class; the reader adds this class to
+#                    the current sentence. Readium-based readers (Thorium) use
+#                    the "-epub-..." name; we always ship matching CSS.
+#   textref_seq   -> wrap each paragraph's <par>s in a <seq epub:textref="...">.
+#                    Spec-recommended structure; a flat par list is simpler and
+#                    slightly more widely tolerated.
+#   gapless       -> stretch each sentence's clipEnd to the next sentence's
+#                    clipBegin, so the highlight never blanks out during the
+#                    silence between sentences.
+#   include_ncx   -> add an EPUB 2 NCX alongside the EPUB 3 nav document, for
+#                    readers that still look for it.
+#   audio_fmt     -> container for the per-chapter narration track.
+EPUB3_PROFILES = {
+    "Universal (max compatibility)": {
+        "active_class": "-epub-media-overlay-active",
+        "textref_seq": False,
+        "gapless": True,
+        "include_ncx": True,
+        "audio_fmt": "m4a",
+    },
+    "Thorium Reader (desktop)": {
+        "active_class": "-epub-media-overlay-active",
+        "textref_seq": True,
+        "gapless": True,
+        "include_ncx": False,
+        "audio_fmt": "m4a",
+    },
+    "Storyteller (Android / iOS)": {
+        "active_class": "-epub-media-overlay-active",
+        "textref_seq": False,
+        "gapless": True,
+        "include_ncx": False,
+        "audio_fmt": "mp3",
+    },
+}
+DEFAULT_EPUB3_PROFILE = "Universal (max compatibility)"
 
 SUPPORTED_EXTENSIONS = [".txt", ".pdf", ".epub", ".docx"]
 
@@ -212,7 +258,9 @@ TRIM_SILENCE_FILTER = (
     "stop_periods=1:stop_silence=0.1:stop_threshold=-50dB:detection=peak"
 )
 
-SPEED_MIN, SPEED_MAX, SPEED_DEFAULT = 0.5, 2.0, 1.0
+# 0.9 reads a touch slower than the engines' native pace — easier to follow for
+# long-form listening, and it pairs with the 0.5 s inter-chunk gap above.
+SPEED_MIN, SPEED_MAX, SPEED_DEFAULT = 0.5, 2.0, 0.9
 
 # ── Loudness / volume ─────────────────────────────────────────────
 # EBU R128 loudness normalization target (ffmpeg loudnorm). ~-16 LUFS is a

@@ -9,18 +9,40 @@ import re
 _BOUNDARY = re.compile(r"([.!?]+[\"'”’)\]]*)(\s+)")
 
 
-def split_sentences(text: str) -> list[str]:
-    sentences: list[str] = []
+def paragraph_sentences(text: str) -> list[list[str]]:
+    """Sentences grouped by source paragraph.
+
+    Same splitting rules as `split_sentences`, but the paragraph structure is
+    preserved so callers can rebuild markup (one <p> per paragraph) and pace
+    paragraph breaks differently from sentence breaks. Used by the EPUB 3
+    read-along export.
+    """
+    paragraphs: list[list[str]] = []
     for paragraph in text.split("\n"):
         paragraph = paragraph.strip()
         if not paragraph:
             continue
         marked = _BOUNDARY.sub(lambda m: m.group(1) + "\x00", paragraph)
-        for sent in marked.split("\x00"):
-            sent = sent.strip()
-            if sent:
-                sentences.append(sent)
-    return sentences
+        sentences = [s.strip() for s in marked.split("\x00") if s.strip()]
+        if sentences:
+            paragraphs.append(sentences)
+    return paragraphs
+
+
+def split_sentences(text: str) -> list[str]:
+    return [s for paragraph in paragraph_sentences(text) for s in paragraph]
+
+
+def sentence_pieces(sentence: str, max_chars: int) -> list[str]:
+    """Split one sentence into synthesis-sized pieces — usually just itself.
+
+    A sentence longer than the engine's per-call limit has to be synthesized in
+    several passes, but it stays *one* highlightable unit, so the caller keeps
+    the pieces grouped.
+    """
+    if len(sentence) <= max_chars:
+        return [sentence]
+    return _hard_split(sentence, max_chars)
 
 
 def chunk_text(text: str, max_chars: int = 1500) -> list[str]:

@@ -89,7 +89,7 @@ def concat_to_output(
     *,
     fmt: str = "mp3",
     bitrate: str = "128k",
-    gap: float = 0.35,
+    gap: float = config.CHUNK_GAP_SECONDS,
     work_dir: str,
     metadata: dict | None = None,
     cover: str | None = None,
@@ -170,6 +170,33 @@ def _concat_ffmpeg(ff, wav_files, out_path, sample_rate, fmt, bitrate, gap,
     return out_path
 
 
+def silence_wav(work_dir: str, seconds: float, sample_rate: int) -> str:
+    """Path to a cached silence WAV of *seconds* (written on first use).
+
+    The read-along export needs *variable* gaps (sentence vs paragraph), so it
+    puts real silence files into the concat list instead of relying on the
+    single uniform `gap` that concat_to_output inserts.
+    """
+    os.makedirs(work_dir, exist_ok=True)
+    path = os.path.join(work_dir, f"_sil_{int(round(seconds * 1000))}ms_{sample_rate}.wav")
+    if not os.path.exists(path):
+        _write_silence(path, seconds, sample_rate)
+    return path
+
+
+def wav_seconds(path: str, sample_rate: int) -> float:
+    """Exact playback seconds of a single WAV (0.0 if it can't be read).
+
+    Trusts the file's own sample rate, falling back to *sample_rate*.
+    """
+    try:
+        info = sf.info(path)
+    except Exception:
+        return 0.0
+    sr = info.samplerate or sample_rate
+    return info.frames / float(sr) if sr else 0.0
+
+
 def wavs_duration(wav_files: list[str], sample_rate: int, gap: float) -> float:
     """Approximate playback seconds of a chapter (chunk audio + inter-chunk gaps)."""
     frames = 0
@@ -238,7 +265,7 @@ def concat_to_m4b(
     chapters: list[tuple[str, float, float]],
     metadata: dict,
     bitrate: str = "128k",
-    gap: float = 0.35,
+    gap: float = config.CHUNK_GAP_SECONDS,
     cover: str | None = None,
     work_dir: str,
     audio_filter: str | None = None,
