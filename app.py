@@ -715,7 +715,11 @@ def convert_action(
         raise gr.Error(f"{type(exc).__name__}: {exc}")
 
     out = final.output if final else None
-    preview = (final.preview if final else None) or (out if mode != "m4b" else None)
+    # The player only accepts an audio file. m4b isn't previewable, and the EPUB
+    # read-along keeps its audio *inside* the .epub — handing either to gr.Audio
+    # would just break the component.
+    preview = (final.preview if final else None) or (
+        out if mode not in ("m4b", "epub3") else None)
     _notify_done()
     yield f"✅ {final.message if final else 'Finished'}", preview, out
 
