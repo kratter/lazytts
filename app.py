@@ -502,8 +502,10 @@ def _missing_model_ids():
     return [m["id"] for m in models.status() if not m["present"]]
 
 
-def download_models(selected_ids, device_label):
-    """Download the selected model groups — only missing files are fetched."""
+def download_models(selected_ids, device_label, progress=gr.Progress(track_tqdm=True)):
+    """Download the selected model groups — only missing files are fetched.
+    `track_tqdm` surfaces Hugging Face's per-file download bars as a live
+    progress bar in the UI."""
     from lazytts import models
     if os.environ.get("LAZYTTS_OFFLINE") == "1":
         yield "Offline mode — model downloads are disabled.", _models_status_md()
@@ -513,17 +515,20 @@ def download_models(selected_ids, device_label):
         return
     dev = device_id(device_label)
     log: list[str] = []
-    for gid in selected_ids:
+    total = len(selected_ids)
+    for i, gid in enumerate(selected_ids, 1):
         label = models.label_of(gid)
-        log.append(f"⬇️ {label}: downloading (only missing files)…")
+        progress((i - 1, total), desc=f"Downloading {label} ({i}/{total})")
+        log.append(f"⬇️ [{i}/{total}] {label}: downloading (only missing files)…")
         yield "\n".join(log), _models_status_md()
         try:
             models.download(gid, dev)
-            log[-1] = f"✅ {label}: ready"
+            log[-1] = f"✅ [{i}/{total}] {label}: ready"
         except Exception as exc:
-            log[-1] = f"⚠️ {label}: {type(exc).__name__}: {exc}"
+            log[-1] = f"⚠️ [{i}/{total}] {label}: {type(exc).__name__}: {exc}"
         yield "\n".join(log), _models_status_md()
-    log.append("Done.")
+    progress((total, total), desc="Done")
+    log.append(f"Done — {total} group(s) processed.")
     yield "\n".join(log), _models_status_md()
 
 
@@ -907,12 +912,18 @@ def build_ui() -> gr.Blocks:
                     batch_out = gr.File(label="Batch results", file_count="multiple")
 
         # ── Models: built-in downloader (fetches only what's missing) ────
-        with gr.Accordion("📥 Models — status & download", open=False):
-            gr.Markdown("Download models on demand — **only missing files are fetched** "
+        _missing_now = _missing_model_ids()
+        _panel_intro = ("Download models on demand — **only missing files are fetched** "
                         "(anything already downloaded is skipped). Needs internet; "
                         "disabled in offline mode.")
+        if _missing_now:
+            _panel_intro = (f"⚠️ **{len(_missing_now)} model group(s) not downloaded yet** — "
+                            "they're pre-selected below; click **Download selected** to fetch "
+                            "them (progress shows above the button).\n\n") + _panel_intro
+        with gr.Accordion("📥 Models — status & download", open=bool(_missing_now)):
+            gr.Markdown(_panel_intro)
             models_status_md = gr.Markdown(_models_status_md())
-            models_group = gr.CheckboxGroup(choices=_model_choices(), value=_missing_model_ids(),
+            models_group = gr.CheckboxGroup(choices=_model_choices(), value=_missing_now,
                                             label="Select models to download")
             with gr.Row():
                 dl_models_btn = gr.Button("📥 Download selected", variant="primary", size="sm")
