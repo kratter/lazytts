@@ -57,15 +57,24 @@ class XttsEngine(TTSEngine):
 
     def _resolve_voice(self, voice_id: str) -> tuple[str, str | None]:
         lang, speaker = config.XTTS_VOICES.get(voice_id, ("en", None))
-        if speaker and self._speakers and speaker not in self._speakers:
-            speaker = self._speakers[0]  # requested speaker missing → first valid
+        if self._speakers and (not speaker or speaker not in self._speakers):
+            speaker = self._speakers[0]  # unknown/clone-without-sample → first valid
         return lang, speaker
 
     def synthesize_to_file(self, text, out_path, *, voice=None, speed=None) -> str:
         self.load()
-        lang, speaker = self._resolve_voice(voice or self.voice)
+        v = voice or self.voice
         spd = float(speed if speed is not None else self.speed) or 1.0
 
+        # Voice cloning: "clone::<lang>::<reference-wav-path>" clones the voice
+        # in the reference sample instead of using a built-in speaker.
+        if isinstance(v, str) and v.startswith("clone::"):
+            _, lang, wav = v.split("::", 2)
+            self._tts.tts_to_file(text=text, file_path=out_path, language=lang or "en",
+                                  speaker_wav=wav, speed=spd)
+            return out_path
+
+        lang, speaker = self._resolve_voice(v)
         kwargs = dict(text=text, file_path=out_path, language=lang, speed=spd)
         if speaker:
             kwargs["speaker"] = speaker

@@ -10,7 +10,7 @@
 ; winget; you may then need to re-run setup (PATH refresh) — see README.
 
 #define AppName "lazyTTS"
-#define AppVersion "0.5.0"
+#define AppVersion "0.6.0"
 
 [Setup]
 AppName={#AppName}

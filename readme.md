@@ -17,6 +17,11 @@ but self-contained (no external TTS server), multilingual, and with a real GUI.
   - **Meta MMS** — multilingual VITS, EN/DE/HU *(non-commercial license)*
   - **Coqui XTTS-v2** — highest-quality multilingual, EN/DE/HU; slower *(non-commercial license)*
   - **Windows SAPI** — zero-dependency fallback, always works
+- **📚 Get a book / article** — search **Project Gutenberg** (public-domain books)
+  or paste any **web article URL**; lazyTTS fetches the text and loads it straight
+  into the pipeline. No file hunting.
+- **🎙 Voice cloning (XTTS)** — clone a voice from a short (10–30 s) reference clip
+  and narrate the whole book in it.
 - **Offline translation** — translate a book before narration with **NLLB-200**
   (English / German / Hungarian…), then narrate it with a matching voice;
   preview the translation first.

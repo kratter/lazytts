@@ -201,7 +201,11 @@ def get_engine(engine_name, dev):
     return _ENGINE_CACHE[key]
 
 
-def _effective_voice(engine_name, kokoro_voice, piper_voice, mms_voice, xtts_voice):
+def _effective_voice(engine_name, kokoro_voice, piper_voice, mms_voice, xtts_voice,
+                     clone_wav=None, lang="en"):
+    # XTTS voice cloning: encode the reference clip + language into the voice id.
+    if engine_name == "xtts" and xtts_voice == "__clone__" and clone_wav:
+        return f"clone::{lang}::{clone_wav}"
     return {
         "kokoro": kokoro_voice, "piper": piper_voice,
         "mms": mms_voice, "xtts": xtts_voice,
@@ -229,9 +233,10 @@ def _sample_for(engine_name, piper_voice, mms_voice, xtts_voice) -> str:
 
 
 def preview_voice(engine_name, kokoro_voice, piper_voice, mms_voice, xtts_voice,
-                  speed, device_label):
+                  xtts_clone, speed, device_label):
     dev = device_id(device_label)
-    voice = _effective_voice(engine_name, kokoro_voice, piper_voice, mms_voice, xtts_voice)
+    voice = _effective_voice(engine_name, kokoro_voice, piper_voice, mms_voice, xtts_voice,
+                             clone_wav=xtts_clone, lang="en")
     try:
         engine = get_engine(engine_name, dev)
         os.makedirs(str(config.CACHE_DIR), exist_ok=True)
@@ -296,6 +301,59 @@ def load_chapters(file, normalize_flag, expand_flag, text_lang):
             gr.update(choices=labels, value=labels),
             gr.update(choices=labels, value=(labels[0] if labels else None)),
             info)
+
+
+# ── Content sources (Gutenberg + web articles) ──────────────────
+def _sources_dir() -> str:
+    d = os.path.join(str(config.CACHE_DIR), "sources")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _ingest(path, normalize, expand, text_lang):
+    """Load a downloaded file into the pipeline exactly like an upload would:
+    fill title/author + detect chapters. Returns the 7 pipeline outputs."""
+    try:
+        meta = document.extract_metadata(path)
+        t, a = meta.get("title", ""), meta.get("author", "")
+    except Exception:
+        t, a = "", ""
+    state, chsel, chprev, info = load_chapters(path, bool(normalize), bool(expand), text_lang)
+    return (gr.update(value=path), gr.update(value=t), gr.update(value=a),
+            state, chsel, chprev, info)
+
+
+def gb_search(query):
+    from lazytts import sources
+    try:
+        res = sources.search_gutenberg(query)
+    except Exception as exc:
+        return gr.update(choices=[], value=None), [], f"⚠️ Search failed ({type(exc).__name__})."
+    if not res:
+        return gr.update(choices=[], value=None), [], "No results found."
+    choices = [(f"{r['title']} — {r['author']}", i) for i, r in enumerate(res)]
+    return gr.update(choices=choices, value=0), res, f"{len(res)} result(s) — pick one, then Load."
+
+
+def gb_load(idx, results, normalize, expand, text_lang):
+    from lazytts import sources
+    if idx is None or not results:
+        raise gr.Error("Search and pick a book first.")
+    item = results[int(idx)]
+    try:
+        path = sources.download_book(item, _sources_dir())
+    except Exception as exc:
+        raise gr.Error(f"Download failed ({type(exc).__name__}): {exc}")
+    return (*_ingest(path, normalize, expand, text_lang), f"✅ Loaded **{item['title']}**.")
+
+
+def fetch_url(url, normalize, expand, text_lang):
+    from lazytts import sources
+    try:
+        title, path = sources.fetch_article(url, _sources_dir())
+    except Exception as exc:
+        raise gr.Error(f"Couldn't fetch article ({type(exc).__name__}): {exc}")
+    return (*_ingest(path, normalize, expand, text_lang), f"✅ Loaded **{title}**.")
 
 
 def preview_chapter(chapter_label, chapters_state, engine_name, kokoro_voice,
@@ -570,7 +628,7 @@ def download_models(selected_ids, device_label, progress=gr.Progress(track_tqdm=
 
 
 def convert_action(
-    file, engine_name, kokoro_voice, piper_voice, mms_voice, xtts_voice, speed, device_label,
+    file, engine_name, kokoro_voice, piper_voice, mms_voice, xtts_voice, xtts_clone, speed, device_label,
     out_fmt, bitrate, gap, loudness_label, gain, cleanup_flag, trim_flag, two_pass_flag, stereo_flag,
     output_mode, normalize_flag, expand_flag, text_lang, translate_label, title, author, cover,
     chapters_state, selected_labels, edited_text, use_edited, lexicon_text,
@@ -593,7 +651,8 @@ def convert_action(
         )
 
     dev = device_id(device_label)
-    voice = _effective_voice(engine_name, kokoro_voice, piper_voice, mms_voice, xtts_voice)
+    voice = _effective_voice(engine_name, kokoro_voice, piper_voice, mms_voice, xtts_voice,
+                             clone_wav=xtts_clone, lang=config.TEXT_LANGUAGES.get(text_lang, "en"))
     cache_voice = voice or engine_name
     engine = get_engine(engine_name, dev)
     chunk_chars = config.CHUNK_CHARS.get(engine_name, config.MAX_CHUNK_CHARS)
@@ -654,7 +713,7 @@ def convert_action(
 
 
 def batch_convert(
-    files, engine_name, kokoro_voice, piper_voice, mms_voice, xtts_voice, speed, device_label,
+    files, engine_name, kokoro_voice, piper_voice, mms_voice, xtts_voice, xtts_clone, speed, device_label,
     out_fmt, bitrate, gap, loudness_label, gain, cleanup_flag, trim_flag, two_pass_flag, stereo_flag,
     output_mode, normalize_flag, expand_flag, text_lang, translate_label, lexicon_text,
 ):
@@ -662,7 +721,8 @@ def batch_convert(
     if not files:
         raise gr.Error("Add one or more documents to the batch first.")
     dev = device_id(device_label)
-    voice = _effective_voice(engine_name, kokoro_voice, piper_voice, mms_voice, xtts_voice)
+    voice = _effective_voice(engine_name, kokoro_voice, piper_voice, mms_voice, xtts_voice,
+                             clone_wav=xtts_clone, lang=config.TEXT_LANGUAGES.get(text_lang, "en"))
     cache_voice = voice or engine_name
     engine = get_engine(engine_name, dev)
     chunk_chars = config.CHUNK_CHARS.get(engine_name, config.MAX_CHUNK_CHARS)
@@ -809,6 +869,20 @@ def build_ui() -> gr.Blocks:
                 gr.HTML('<div class="sect"><span class="n">1</span>Source &amp; voice</div>')
                 file_in = gr.File(label="Document",
                                   file_types=config.SUPPORTED_EXTENSIONS, type="filepath")
+
+                with gr.Accordion("📚 Get a book / article (free & legal)", open=False):
+                    gb_results_state = gr.State([])
+                    with gr.Tab("Project Gutenberg"):
+                        gb_query = gr.Textbox(label="Search public-domain books",
+                                              placeholder="title or author, e.g. Sherlock Holmes")
+                        gb_search_btn = gr.Button("🔎 Search", size="sm")
+                        gb_results = gr.Dropdown([], label="Results")
+                        gb_load_btn = gr.Button("⬇️ Load selected book", variant="primary", size="sm")
+                    with gr.Tab("Web article"):
+                        url_in = gr.Textbox(label="Article URL", placeholder="https://…")
+                        url_fetch_btn = gr.Button("📄 Fetch & load", variant="primary", size="sm")
+                    source_status = gr.Markdown("")
+
                 engine_dd = gr.Dropdown(
                     engines, value=eng_val, label="TTS engine",
                     info=("kokoro = English (fast) · piper = German/Hungarian & more · "
@@ -833,10 +907,14 @@ def build_ui() -> gr.Blocks:
                     )
                 with gr.Group(visible=eng_val == "xtts") as xtts_group:
                     xtts_voice_dd = gr.Dropdown(
-                        choices=[(config.XTTS_VOICE_LABELS.get(k, k), k) for k in config.XTTS_VOICES],
+                        choices=[(config.XTTS_VOICE_LABELS.get(k, k), k) for k in config.XTTS_VOICES]
+                                + [("🎙 Clone from a sample", "__clone__")],
                         value=xtts_voice_val, label="Voice (XTTS-v2 · EN/DE/HU)",
                         info="Coqui XTTS · highest quality but slow · non-commercial license.",
                     )
+                    xtts_clone_audio = gr.Audio(
+                        label="Reference voice for cloning (10–30 s clip)", type="filepath",
+                        visible=(xtts_voice_val == "__clone__"))
 
                 preview_btn = gr.Button("🔊 Preview voice", size="sm")
                 preview_audio = gr.Audio(label="Voice preview", type="filepath", autoplay=True)
@@ -1026,9 +1104,21 @@ def build_ui() -> gr.Blocks:
         preview_btn.click(
             preview_voice,
             inputs=[engine_dd, kokoro_voice_dd, piper_voice_dd, mms_voice_dd, xtts_voice_dd,
-                    speed_sl, device_dd],
+                    xtts_clone_audio, speed_sl, device_dd],
             outputs=preview_audio,
         )
+        xtts_voice_dd.change(lambda v: gr.update(visible=v == "__clone__"),
+                             inputs=xtts_voice_dd, outputs=xtts_clone_audio)
+
+        # Content sources → load a book/article into the pipeline
+        _ingest_out = [file_in, title_tb, author_tb, chapters_state, chapter_select,
+                       chapter_preview_dd, chapters_info, source_status]
+        gb_search_btn.click(gb_search, inputs=gb_query,
+                            outputs=[gb_results, gb_results_state, source_status])
+        gb_load_btn.click(gb_load, inputs=[gb_results, gb_results_state, normalize_cb, expand_cb, text_lang_dd],
+                          outputs=_ingest_out)
+        url_fetch_btn.click(fetch_url, inputs=[url_in, normalize_cb, expand_cb, text_lang_dd],
+                            outputs=_ingest_out)
         preview_chapter_btn.click(
             preview_chapter,
             inputs=[chapter_preview_dd, chapters_state, engine_dd, kokoro_voice_dd,
@@ -1053,7 +1143,7 @@ def build_ui() -> gr.Blocks:
             inputs=None, outputs=[models_status_md, models_group])
 
         _core_settings = [
-            engine_dd, kokoro_voice_dd, piper_voice_dd, mms_voice_dd, xtts_voice_dd,
+            engine_dd, kokoro_voice_dd, piper_voice_dd, mms_voice_dd, xtts_voice_dd, xtts_clone_audio,
             speed_sl, device_dd,
             fmt_dd, bitrate_dd, gap_sl, loudness_dd, gain_sl,
             cleanup_cb, trim_cb, two_pass_cb, stereo_cb,
