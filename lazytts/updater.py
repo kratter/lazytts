@@ -38,9 +38,35 @@ def check(timeout: float = 6.0) -> dict:
     latest = (data.get("tag_name") or "").strip()
     url = data.get("html_url") or _RELEASES_URL
     current = config.APP_VERSION
+    assets = data.get("assets") or []
+    exe = next((a for a in assets if str(a.get("name", "")).lower().endswith(".exe")), None)
+    if exe is None and assets:
+        exe = assets[0]
     return {
         "current": current,
         "latest": latest,
         "url": url,
         "update_available": bool(latest) and _parse(latest) > _parse(current),
+        "asset_url": exe.get("browser_download_url") if exe else None,
+        "asset_name": exe.get("name") if exe else None,
     }
+
+
+def download_asset(url: str, dest_path: str, timeout: float = 30.0) -> str:
+    """Download a release asset to *dest_path* with a tqdm bar (so the UI can
+    show progress via gr.Progress(track_tqdm=True))."""
+    import urllib.request
+    from tqdm.auto import tqdm
+
+    req = urllib.request.Request(url, headers={"User-Agent": "lazyTTS"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        total = int(resp.headers.get("Content-Length") or 0)
+        with open(dest_path, "wb") as fh, tqdm(
+                total=total, unit="B", unit_scale=True, desc="Downloading update") as bar:
+            while True:
+                chunk = resp.read(65536)
+                if not chunk:
+                    break
+                fh.write(chunk)
+                bar.update(len(chunk))
+    return dest_path

@@ -10,7 +10,7 @@
 ; winget; you may then need to re-run setup (PATH refresh) — see README.
 
 #define AppName "lazyTTS"
-#define AppVersion "0.4.0"
+#define AppVersion "0.5.0"
 
 [Setup]
 AppName={#AppName}
@@ -57,20 +57,20 @@ Name: dlxtts; Description: "Download the Coqui XTTS-v2 voices (~1.8 GB) — high
 ; If Python is missing, install it via winget (may need a new shell afterward).
 Filename: "powershell.exe"; \
   Parameters: "-NoProfile -Command ""winget install --id Python.Python.3.12 -e --accept-package-agreements --accept-source-agreements"""; \
-  StatusMsg: "Installing Python 3.12…"; Flags: runhidden waituntilterminated; Check: PythonMissing
+  StatusMsg: "Installing Python 3.12…"; Flags: waituntilterminated; Check: PythonMissing
 ; Create the venv + install all dependencies (+ ffmpeg) via setup.bat.
 Filename: "{app}\setup.bat"; Parameters: "nopause"; WorkingDir: "{app}"; \
-  StatusMsg: "Installing dependencies (torch, kokoro, piper, gradio, ffmpeg)…"; \
-  Flags: runhidden waituntilterminated
+  StatusMsg: "Installing dependencies — the console window shows live progress (large download, please wait)…"; \
+  Flags: waituntilterminated
 ; Download the standard TTS voices (Kokoro + Piper + small MMS) — always.
 Filename: "{app}\.venv\Scripts\python.exe"; Parameters: """{app}\prefetch_models.py"" --skip-translation --skip-xtts"; WorkingDir: "{app}"; \
-  StatusMsg: "Downloading voice models…"; Flags: runhidden waituntilterminated
+  StatusMsg: "Downloading voice models…"; Flags: waituntilterminated
 ; Download the translation model only if the user opted in (keeps install small).
 Filename: "{app}\.venv\Scripts\python.exe"; Parameters: """{app}\prefetch_models.py"" --only-translation"; WorkingDir: "{app}"; \
-  StatusMsg: "Downloading translation model (NLLB-200, ~2.4 GB)…"; Flags: runhidden waituntilterminated; Tasks: dltranslate
+  StatusMsg: "Downloading translation model (NLLB-200, ~2.4 GB)…"; Flags: waituntilterminated; Tasks: dltranslate
 ; Download the Coqui XTTS-v2 voices only if the user opted in.
 Filename: "{app}\.venv\Scripts\python.exe"; Parameters: """{app}\prefetch_models.py"" --only-xtts"; WorkingDir: "{app}"; \
-  StatusMsg: "Downloading XTTS-v2 voices (~1.8 GB)…"; Flags: runhidden waituntilterminated; Tasks: dlxtts
+  StatusMsg: "Downloading XTTS-v2 voices (~1.8 GB)…"; Flags: waituntilterminated; Tasks: dlxtts
 Filename: "{app}\run.bat"; Description: "Launch {#AppName}"; WorkingDir: "{app}"; \
   Flags: nowait postinstall skipifsilent
 

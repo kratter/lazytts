@@ -7,7 +7,7 @@
 ; Requires dist\lazyTTS\lazyTTS.exe to exist.
 
 #define AppName "lazyTTS"
-#define AppVersion "0.4.0"
+#define AppVersion "0.5.0"
 #define AppExe "lazyTTS.exe"
 
 [Setup]
@@ -46,13 +46,13 @@ Name: ffmpeg; Description: "Install ffmpeg via winget (for MP3/M4B + loudness)";
 
 [Run]
 ; Download Kokoro + Piper + MMS voices into {app}\hf_cache (lazyTTS.exe --prefetch).
-Filename: "{app}\{#AppExe}"; Parameters: "--prefetch --skip-translation --skip-xtts"; StatusMsg: "Downloading voice models (this can take several minutes)…"; Flags: runhidden waituntilterminated; Tasks: dlmodels
+Filename: "{app}\{#AppExe}"; Parameters: "--prefetch --skip-translation --skip-xtts"; StatusMsg: "Downloading voice models (this can take several minutes)…"; Flags: waituntilterminated; Tasks: dlmodels
 ; Optionally download the translation model.
-Filename: "{app}\{#AppExe}"; Parameters: "--prefetch --only-translation"; StatusMsg: "Downloading translation model (NLLB-200, ~2.4 GB)…"; Flags: runhidden waituntilterminated; Tasks: dltranslate
+Filename: "{app}\{#AppExe}"; Parameters: "--prefetch --only-translation"; StatusMsg: "Downloading translation model (NLLB-200, ~2.4 GB)…"; Flags: waituntilterminated; Tasks: dltranslate
 ; Optionally download the XTTS-v2 voices.
-Filename: "{app}\{#AppExe}"; Parameters: "--prefetch --only-xtts"; StatusMsg: "Downloading XTTS-v2 voices (~1.8 GB)…"; Flags: runhidden waituntilterminated; Tasks: dlxtts
+Filename: "{app}\{#AppExe}"; Parameters: "--prefetch --only-xtts"; StatusMsg: "Downloading XTTS-v2 voices (~1.8 GB)…"; Flags: waituntilterminated; Tasks: dlxtts
 ; ffmpeg via winget (installs system-wide; the app also finds a local ffmpeg.exe).
-Filename: "powershell.exe"; Parameters: "-NoProfile -Command ""winget install --id Gyan.FFmpeg -e --accept-package-agreements --accept-source-agreements"""; StatusMsg: "Installing ffmpeg…"; Flags: runhidden waituntilterminated; Tasks: ffmpeg
+Filename: "powershell.exe"; Parameters: "-NoProfile -Command ""winget install --id Gyan.FFmpeg -e --accept-package-agreements --accept-source-agreements"""; StatusMsg: "Installing ffmpeg…"; Flags: waituntilterminated; Tasks: ffmpeg
 ; Offer to launch at the end.
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
 

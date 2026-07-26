@@ -478,8 +478,45 @@ def check_updates():
         return f"⚠️ Couldn't check for updates ({type(exc).__name__})."
     if info.get("update_available"):
         return (f"🎉 **{info['latest']}** is available — you have v{info['current']}. "
-                f"[Download / release notes]({info['url']})")
+                f"Click **⬇️ Download & install update**, or "
+                f"[view the release]({info['url']}).")
     return f"✅ You're up to date (v{info['current']})."
+
+
+def _downloads_dir() -> str:
+    d = Path.home() / "Downloads"
+    return str(d if d.is_dir() else config.BASE_DIR)
+
+
+def download_and_install_update(progress=gr.Progress(track_tqdm=True)):
+    """Download the latest release installer inside the app and launch it."""
+    if os.environ.get("LAZYTTS_OFFLINE") == "1":
+        return "Offline mode — update download is disabled."
+    try:
+        from lazytts import updater
+        info = updater.check()
+    except Exception as exc:
+        return f"⚠️ Couldn't reach the update server ({type(exc).__name__})."
+    if not info.get("update_available"):
+        return f"✅ Already up to date (v{info['current']})."
+    if not info.get("asset_url"):
+        return (f"No installer attached to **{info['latest']}** — "
+                f"[open the release page]({info['url']}) to download manually.")
+    dest = os.path.join(_downloads_dir(), info["asset_name"])
+    try:
+        updater.download_asset(info["asset_url"], dest)
+    except Exception as exc:
+        return f"⚠️ Download failed ({type(exc).__name__}: {exc}). [Release page]({info['url']})"
+    launched = False
+    try:
+        if hasattr(os, "startfile"):
+            os.startfile(dest)  # opens the installer wizard
+            launched = True
+    except Exception:
+        pass
+    tail = ("the installer just opened — follow its steps and close lazyTTS when asked."
+            if launched else f"run it from:\n`{dest}`")
+    return f"⬇️ Downloaded **{info['asset_name']}** — {tail}"
 
 
 # ── Model manager (built-in downloader) ──────────────────────────
@@ -934,6 +971,7 @@ def build_ui() -> gr.Blocks:
         with gr.Row():
             gr.Markdown(f"**lazyTTS** v{config.APP_VERSION} · fully offline")
             update_btn = gr.Button("🔄 Check for updates", size="sm", scale=0)
+            get_update_btn = gr.Button("⬇️ Download & install update", size="sm", scale=0)
         update_info = gr.Markdown("")
 
         # ── Wiring ──
@@ -1005,6 +1043,7 @@ def build_ui() -> gr.Blocks:
         clear_cache_btn.click(lambda: clear_cache_now(), inputs=None, outputs=None)
         clear_exit_cb.change(set_clear_on_exit, inputs=clear_exit_cb, outputs=None)
         update_btn.click(check_updates, inputs=None, outputs=update_info)
+        get_update_btn.click(download_and_install_update, inputs=None, outputs=update_info)
 
         dl_models_btn.click(download_models, inputs=[models_group, device_dd],
                             outputs=[models_log, models_status_md])
@@ -1074,9 +1113,14 @@ def _run_windowed(demo) -> bool:
             return False
         webview.create_window(config.APP_NAME, url, width=1440, height=920,
                               min_size=(900, 640))
-        # Closing the window ends webview.start(); then we exit the process.
+        # Blocks until the window is closed.
         webview.start()
-        return True
+        # Force the whole process (incl. Gradio's server thread) to exit so the
+        # launching console/cmd window closes too — a plain return can hang on
+        # the non-daemon server thread.
+        print("lazyTTS: window closed — shutting down.", flush=True)
+        _clear_cache_if_enabled()
+        os._exit(0)
     except Exception as exc:
         print(f"lazyTTS: could not open desktop window ({exc}); using browser.", flush=True)
         return False
