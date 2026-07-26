@@ -482,6 +482,51 @@ def check_updates():
     return f"✅ You're up to date (v{info['current']})."
 
 
+# ── Model manager (built-in downloader) ──────────────────────────
+def _models_status_md():
+    from lazytts import models
+    rows = ["| Model | Size | Status |", "|---|---|---|"]
+    for m in models.status():
+        state = "✅ downloaded" if m["present"] else "⬇️ not downloaded"
+        rows.append(f"| {m['label']} | {m['size']} | {state} |")
+    return "\n".join(rows)
+
+
+def _model_choices():
+    from lazytts import models
+    return [(f"{m['label']} ({m['size']})", m["id"]) for m in models.status()]
+
+
+def _missing_model_ids():
+    from lazytts import models
+    return [m["id"] for m in models.status() if not m["present"]]
+
+
+def download_models(selected_ids, device_label):
+    """Download the selected model groups — only missing files are fetched."""
+    from lazytts import models
+    if os.environ.get("LAZYTTS_OFFLINE") == "1":
+        yield "Offline mode — model downloads are disabled.", _models_status_md()
+        return
+    if not selected_ids:
+        yield "Nothing selected — tick the models you want, then Download.", _models_status_md()
+        return
+    dev = device_id(device_label)
+    log: list[str] = []
+    for gid in selected_ids:
+        label = models.label_of(gid)
+        log.append(f"⬇️ {label}: downloading (only missing files)…")
+        yield "\n".join(log), _models_status_md()
+        try:
+            models.download(gid, dev)
+            log[-1] = f"✅ {label}: ready"
+        except Exception as exc:
+            log[-1] = f"⚠️ {label}: {type(exc).__name__}: {exc}"
+        yield "\n".join(log), _models_status_md()
+    log.append("Done.")
+    yield "\n".join(log), _models_status_md()
+
+
 def convert_action(
     file, engine_name, kokoro_voice, piper_voice, mms_voice, xtts_voice, speed, device_label,
     out_fmt, bitrate, gap, loudness_label, gain, cleanup_flag, trim_flag, two_pass_flag, stereo_flag,
@@ -861,6 +906,19 @@ def build_ui() -> gr.Blocks:
                     batch_status = gr.Textbox(label="Batch status", lines=5, interactive=False)
                     batch_out = gr.File(label="Batch results", file_count="multiple")
 
+        # ── Models: built-in downloader (fetches only what's missing) ────
+        with gr.Accordion("📥 Models — status & download", open=False):
+            gr.Markdown("Download models on demand — **only missing files are fetched** "
+                        "(anything already downloaded is skipped). Needs internet; "
+                        "disabled in offline mode.")
+            models_status_md = gr.Markdown(_models_status_md())
+            models_group = gr.CheckboxGroup(choices=_model_choices(), value=_missing_model_ids(),
+                                            label="Select models to download")
+            with gr.Row():
+                dl_models_btn = gr.Button("📥 Download selected", variant="primary", size="sm")
+                refresh_models_btn = gr.Button("🔄 Refresh status", size="sm")
+            models_log = gr.Textbox(label="Download progress", lines=4, interactive=False)
+
         # ── Footer: version + update check ───────────────────────
         with gr.Row():
             gr.Markdown(f"**lazyTTS** v{config.APP_VERSION} · fully offline")
@@ -936,6 +994,13 @@ def build_ui() -> gr.Blocks:
         clear_cache_btn.click(lambda: clear_cache_now(), inputs=None, outputs=None)
         clear_exit_cb.change(set_clear_on_exit, inputs=clear_exit_cb, outputs=None)
         update_btn.click(check_updates, inputs=None, outputs=update_info)
+
+        dl_models_btn.click(download_models, inputs=[models_group, device_dd],
+                            outputs=[models_log, models_status_md])
+        refresh_models_btn.click(
+            lambda: (_models_status_md(),
+                     gr.update(choices=_model_choices(), value=_missing_model_ids())),
+            inputs=None, outputs=[models_status_md, models_group])
 
         _core_settings = [
             engine_dd, kokoro_voice_dd, piper_voice_dd, mms_voice_dd, xtts_voice_dd,
