@@ -5,6 +5,7 @@ Engines: Kokoro (English, fast) · Piper (German + others) · Windows SAPI.
 """
 from __future__ import annotations
 
+import atexit
 import os
 import re
 import sys
@@ -255,7 +256,11 @@ _SETTINGS_KEYS = [
 
 
 def _save_settings(**kw) -> None:
-    settings_store.save({k: kw.get(k) for k in _SETTINGS_KEYS})
+    # Merge into existing settings so keys persisted elsewhere (e.g. clear_on_exit)
+    # survive a convert-time save.
+    data = settings_store.load()
+    data.update({k: kw.get(k) for k in _SETTINGS_KEYS if k in kw})
+    settings_store.save(data)
 
 
 # ── Chapter selection helpers ────────────────────────────────────
@@ -396,6 +401,53 @@ def open_output_folder():
             os.startfile(str(config.OUTPUT_DIR))  # Windows
     except Exception:
         pass
+
+
+# ── Cache management ─────────────────────────────────────────────
+# The chunk/preview cache (config.CACHE_DIR) is regenerable — clearing it only
+# loses the crash-resume speedup, never the finished audiobooks or the models.
+_clear_on_exit = {"v": False}
+
+
+def clear_cache() -> tuple[int, int]:
+    """Delete cached chunk/preview WAVs. Returns (files_removed, bytes_freed)."""
+    removed = freed = 0
+    d = str(config.CACHE_DIR)
+    if os.path.isdir(d):
+        for root, _dirs, files in os.walk(d):
+            for f in files:
+                p = os.path.join(root, f)
+                try:
+                    freed += os.path.getsize(p)
+                    os.remove(p)
+                    removed += 1
+                except OSError:
+                    pass  # skip anything locked (e.g. a preview still playing)
+    return removed, freed
+
+
+def clear_cache_now():
+    removed, freed = clear_cache()
+    os.makedirs(str(config.CACHE_DIR), exist_ok=True)
+    gr.Info(f"Cleared {removed} cached file(s) — freed {freed / 1e6:.0f} MB.")
+
+
+def set_clear_on_exit(value):
+    _clear_on_exit["v"] = bool(value)
+    try:  # persist immediately (survives without needing a convert)
+        s = settings_store.load()
+        s["clear_on_exit"] = bool(value)
+        settings_store.save(s)
+    except Exception:
+        pass
+
+
+def _clear_cache_if_enabled():
+    if _clear_on_exit["v"]:
+        try:
+            clear_cache()
+        except Exception:
+            pass
 
 
 def _notify_done():
@@ -603,6 +655,7 @@ def _maybe_shutdown():
     with _session_lock:
         if _session_count["n"] <= 0:
             print("lazyTTS: browser window closed — shutting down server.", flush=True)
+            _clear_cache_if_enabled()  # os._exit skips atexit, so clear here
             os._exit(0)
 
 
@@ -642,6 +695,9 @@ def build_ui() -> gr.Blocks:
     def sv_in(key, choices, default):
         v = S.get(key)
         return v if v in choices else default
+
+    clear_exit_val = bool(sv("clear_on_exit", True))
+    _clear_on_exit["v"] = clear_exit_val
 
     eng_val = sv_in("engine", engines, default_engine)
     kokoro_voice_val = sv_in("kokoro_voice", list(config.KOKORO_VOICES.keys()), config.DEFAULT_VOICE)
@@ -790,7 +846,12 @@ def build_ui() -> gr.Blocks:
                 status = gr.Textbox(label="Status", lines=4, interactive=False)
                 player = gr.Audio(label="Result", type="filepath")
                 download = gr.File(label="Download audiobook")
-                open_folder_btn = gr.Button("📂 Open output folder", size="sm")
+                with gr.Row():
+                    open_folder_btn = gr.Button("📂 Open output folder", size="sm")
+                    clear_cache_btn = gr.Button("🧹 Clear cache", size="sm")
+                clear_exit_cb = gr.Checkbox(value=clear_exit_val, label="Clear cache on exit",
+                                            info="Delete the chunk cache when the app closes "
+                                                 "(finished audiobooks are kept).")
 
                 with gr.Accordion("📚 Batch — convert multiple books", open=False):
                     gr.Markdown("Converts each **whole book** with the current settings above.")
@@ -872,6 +933,8 @@ def build_ui() -> gr.Blocks:
                             inputs=[chapters_state, chapter_select], outputs=edit_text)
         lexicon_save_btn.click(save_lexicon, inputs=lexicon_tb, outputs=None)
         open_folder_btn.click(lambda: open_output_folder(), inputs=None, outputs=None)
+        clear_cache_btn.click(lambda: clear_cache_now(), inputs=None, outputs=None)
+        clear_exit_cb.change(set_clear_on_exit, inputs=clear_exit_cb, outputs=None)
         update_btn.click(check_updates, inputs=None, outputs=update_info)
 
         _core_settings = [
@@ -951,6 +1014,9 @@ def main() -> int:
 
     config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
     config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    # Clean exit (e.g. pywebview window close) runs atexit; the browser-mode
+    # os._exit path clears explicitly in _maybe_shutdown.
+    atexit.register(_clear_cache_if_enabled)
     demo = build_ui().queue()
 
     # Default: native desktop window (pywebview). Set LAZYTTS_BROWSER=1 to force the
