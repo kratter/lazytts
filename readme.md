@@ -1,46 +1,40 @@
 # 🎧 lazyTTS — eBook → Audiobook Converter
 
 A **standalone, fully-offline** desktop app that turns eBooks into audiobooks
-using local neural text-to-speech. Gradio interface, packaged to a Windows
-`.exe` with PyInstaller.
+using local neural text-to-speech. Runs as a **native desktop window** (no
+browser), packaged to a Windows `.exe` with PyInstaller.
 
 Inspired by [Qwen3-Audiobook-Converter](https://github.com/WhiskeyCoder/Qwen3-Audiobook-Converter),
-but self-contained (no external Gradio TTS server) with a GUI.
+but self-contained (no external TTS server), multilingual, and with a real GUI.
 
 - **Inputs:** `.txt`, `.pdf`, `.epub`, `.docx`
-- **Output:** `.mp3` (96–256 kbps) or `.wav`
+- **Outputs:** `.mp3`, `.m4a`, `.opus`, `.flac`, `.wav` (16/24-bit), mono or
+  stereo — as one file, **split by chapter + `.m3u`**, or a single **`.m4b`**
+  with embedded chapters, metadata & cover art.
 - **TTS engines (all offline):**
-  - **Kokoro** — 82M-param model, fast & light English voices, GPU-accelerated (default)
-  - **Piper** — small ONNX voices for **German** (Thorsten, Eva, Kerstin…) and
-    more; runs on CPU
-  - **Windows SAPI** (`pyttsx3`) — zero-dependency fallback, always works
-- Sentence-aware chunking, per-chunk audio **caching** (crash-resume), choose
-  which **GPU** to use.
-- **Chapter-aware output:** one big file, split into numbered chapter-named
-  files + a **`.m3u` playlist**, **or** a single **`.m4b`** with embedded chapter
-  navigation, title/author, and cover art.
-- **ID3 / metadata tagging:** MP3 output is tagged (title, artist/author,
-  album, genre, and per-chapter **track numbers** in split mode) with optional
-  **embedded cover art** — so files group correctly in any audiobook player.
-- **Loudness normalization:** even, audiobook-level volume (EBU R128 ≈ −16
-  LUFS) via ffmpeg `loudnorm`, plus an optional manual gain (dB) boost — fixes
-  quiet/inconsistent TTS output. (Without ffmpeg, WAV output gets peak
-  normalization instead.)
-- **Smart text cleanup:** de-hyphenation, page-number stripping, and optional
-  number/abbreviation expansion (`1996 → nineteen ninety-six`, `Dr. → Doctor`).
-- **Long-run UX:** live progress with **speed (chunks/min) + ETA**, and a
-  **Stop** button (cached chunks persist, so it resumes on the next run).
-- **🔊 Preview voice** button — audition the selected engine/voice on a sample
-  sentence before converting a whole book. Loaded models are cached, so
-  previews and conversions don't reload the model.
-- **Chapter selection + per-chapter preview** — load the detected chapters into
-  a checklist, untick any you don't want, and preview any chapter's opening
-  audio before committing.
-- **German (and more)** — Piper provides native German voices; chapter detection
-  recognises German headings (Kapitel/Teil/…); a **Text language** selector
-  expands numbers/abbreviations in the chosen language (en/de/fr/es/it/pt).
-- **Remembers your settings** — last-used options are saved to `settings.json`
-  next to the app and restored on launch (runtime — no rebuild needed).
+  - **Kokoro** — 82M English voices, fast & light, GPU-accelerated (default)
+  - **Piper** — small ONNX voices for **German, Hungarian** & more (CPU)
+  - **Meta MMS** — multilingual VITS, EN/DE/HU *(non-commercial license)*
+  - **Coqui XTTS-v2** — highest-quality multilingual, EN/DE/HU; slower *(non-commercial license)*
+  - **Windows SAPI** — zero-dependency fallback, always works
+- **Offline translation** — translate a book before narration with **NLLB-200**
+  (English / German / Hungarian…), then narrate it with a matching voice;
+  preview the translation first.
+- **Pronunciation lexicon** — custom `word => sound` overrides for names/jargon.
+- **Batch queue** — convert many books back-to-back.
+- **Text preview / edit** — review and fix the extracted text before synthesis.
+- **Audio polish** — loudness presets (audiobook −16, **ACX**, podcast, loud),
+  optional **2-pass** loudnorm, voice cleanup (high-pass + denoise), silence
+  trimming, and a manual gain boost.
+- **Chapter-aware** — auto-detects chapters, pick which to export, per-chapter
+  preview; ID3 tags with per-track numbers; embedded cover art.
+- **Smart text cleanup** — de-hyphenation, page-number stripping, and
+  number/abbreviation expansion (`1996 → nineteen ninety-six`) in the chosen
+  language.
+- **Nice touches** — 🔊 voice preview, live **speed + ETA**, Stop with
+  crash-resume caching, choose which **GPU** to use, duration estimate,
+  **📂 open output folder**, a done chime, **closing the window shuts the server
+  down**, a **🔄 update check**, and your settings remembered across launches.
 
 ---
 
@@ -100,15 +94,23 @@ You should see both cards listed. In the app's **Device** dropdown you can pick
 python app.py       # or: .\run.bat
 ```
 
-Opens `http://127.0.0.1:7860`. Upload a document, pick a voice, click
-**Convert to audiobook**. Output lands in `audiobooks\`.
+Opens a **native desktop window** (closing it stops the server). Set
+`LAZYTTS_BROWSER=1` to open in your browser instead. Upload a document, pick a
+voice, click **Convert to audiobook**. Output lands in `audiobooks\`.
 
 ### Choosing an engine
 
-- **Kokoro** — pick a built-in English voice; fastest, lightest (uses your GPU).
-- **Piper** — pick a **German** voice (Thorsten/Eva/Kerstin/Karlsson/Ramona) or
-  an English one; small ONNX models download on first use and run on CPU.
+- **Kokoro** — built-in English voices; fastest, lightest (uses your GPU).
+- **Piper** — **German / Hungarian** (and English) ONNX voices; download on
+  first use, run on CPU.
+- **MMS** — Meta's multilingual VITS (English/German/Hungarian); non-commercial.
+- **XTTS-v2** — Coqui's highest-quality multilingual voices (EN/DE/HU);
+  autoregressive so **much slower** — best for short/high-quality output;
+  non-commercial.
 - **SAPI** — instant, robotic; good for a quick pipeline test.
+
+> Picking a **Translate to** language auto-selects a matching voice. Kokoro is
+> English-only, so translated output routes through Piper/MMS/XTTS.
 
 ### Output modes & chapters
 
