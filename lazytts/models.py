@@ -20,6 +20,12 @@ _GROUPS = [
     ("nllb", "NLLB-200 — offline translation", "~2.4 GB"),
 ]
 
+# The only group needed to convert a book out of the box, since Kokoro is the
+# default engine. Everything else is opt-in: Piper/MMS/XTTS add languages and
+# voice cloning, NLLB adds translation, and together they're several GB — no
+# reason to pull them before the user picks that engine.
+ESSENTIAL_GROUPS = ("kokoro",)
+
 
 def _default_device() -> str:
     try:
@@ -62,8 +68,23 @@ def present(group_id: str) -> bool:
 
 def status() -> list[dict]:
     """List every model group with its label, size, and whether it's cached."""
-    return [{"id": gid, "label": label, "size": size, "present": present(gid)}
+    return [{"id": gid, "label": label, "size": size, "present": present(gid),
+             "essential": gid in ESSENTIAL_GROUPS}
             for gid, label, size in _GROUPS]
+
+
+def missing() -> list[str]:
+    """Every group that isn't cached yet."""
+    return [gid for gid, _, _ in _GROUPS if not present(gid)]
+
+
+def recommended_missing() -> list[str]:
+    """Groups worth pre-selecting for download: the essential ones only.
+
+    Deliberately not "everything missing" — pre-ticking all five would have a
+    first-time user download ~5 GB to convert one English book.
+    """
+    return [gid for gid in ESSENTIAL_GROUPS if not present(gid)]
 
 
 def label_of(group_id: str) -> str:

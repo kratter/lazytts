@@ -217,9 +217,24 @@ To make the app run with **no internet**:
 .\run_offline.bat       # thereafter — sets LAZYTTS_OFFLINE=1, no network access
 ```
 
-`make_offline.bat` runs `prefetch_models.py`, which caches the Kokoro model +
-every Kokoro voice and downloads all the **Piper** voices. Everything lands in
-`hf_cache\`.
+`make_offline.bat` runs `prefetch_models.py`, which caches every model group
+(~5 GB). Everything lands in `hf_cache\`.
+
+To fetch less, name the groups you want — valid ids are `kokoro`, `piper`,
+`mms`, `xtts`, `nllb`:
+
+```powershell
+.venv\Scripts\python prefetch_models.py --minimal              # Kokoro only, ~0.3 GB
+.venv\Scripts\python prefetch_models.py --groups kokoro,piper  # pick exactly these
+.venv\Scripts\python prefetch_models.py --skip-xtts --skip-translation
+```
+
+You can also do this from inside the app: the **📥 Models** panel at the bottom
+lists every group with its size and whether it's downloaded, and downloads only
+the ones you tick. On a fresh install just **Kokoro** is pre-selected — enough to
+convert English books — and the panel stays collapsed so nothing is fetched
+until you ask for it. Add Piper/MMS/XTTS when you need other languages or voice
+cloning, and NLLB when you want offline translation.
 
 For the packaged **.exe**: ship the populated `hf_cache\` folder next to
 `lazyTTS.exe` and launch with the `LAZYTTS_OFFLINE=1` environment variable set.

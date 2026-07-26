@@ -5,7 +5,10 @@ Importing `config` first pins HF_HOME to ./hf_cache before any model library is
 imported.
 
 Usage:
-    python prefetch_models.py            # Kokoro model + all voices + Piper voices
+    python prefetch_models.py                     # everything (~5 GB)
+    python prefetch_models.py --minimal           # just Kokoro (~0.3 GB)
+    python prefetch_models.py --groups kokoro,piper
+    python prefetch_models.py --skip-xtts --skip-translation
 
 Each group is independent: a failure in one (e.g. a package that didn't
 install) is reported and skipped, and the others still download.
@@ -128,19 +131,58 @@ def _prefetch_xtts(device: str) -> None:
         print(f"[WARN] could not cache XTTS-v2: {exc}")
 
 
+# group id -> how to fetch it. Keep the ids in sync with lazytts/models.py.
+_PREFETCHERS = {
+    "kokoro": lambda device: _prefetch_kokoro(device),
+    "piper": lambda device: _prefetch_piper(),
+    "mms": lambda device: _prefetch_mms(device),
+    "xtts": lambda device: _prefetch_xtts(device),
+    "nllb": lambda device: _prefetch_translation(),
+}
+
+
+def _selected_groups(argv: list[str]) -> list[str] | None:
+    """Groups named explicitly on the command line, or None if not specified."""
+    for i, arg in enumerate(argv):
+        if arg.startswith("--groups="):
+            raw = arg.split("=", 1)[1]
+        elif arg == "--groups" and i + 1 < len(argv):
+            raw = argv[i + 1]
+        else:
+            continue
+        return [g.strip() for g in raw.split(",") if g.strip()]
+    if "--minimal" in argv:
+        return ["kokoro"]  # the default engine, and nothing else
+    return None
+
+
 def main() -> int:
     # Flags let the installers split downloads by size/need:
+    #   --groups a,b,c       fetch exactly these groups
+    #                        (kokoro, piper, mms, xtts, nllb)
+    #   --minimal            same as --groups kokoro
     #   --skip-translation   omit NLLB-200 (~2.4 GB)
     #   --only-translation   ONLY NLLB-200
     #   --skip-xtts          omit Coqui XTTS-v2 (~1.8 GB)
     #   --only-xtts          ONLY XTTS-v2
-    # (Kokoro + Piper + the small MMS voices always download in the default run.)
-    args = set(sys.argv[1:])
+    # With no flags every group downloads (~5 GB).
+    argv = sys.argv[1:]
+    args = set(argv)
 
     print("HF cache location:", os.environ.get("HF_HOME"))
     device = _detect_device()
 
-    if "--only-translation" in args:
+    selected = _selected_groups(argv)
+    if selected is not None:
+        unknown = [g for g in selected if g not in _PREFETCHERS]
+        if unknown:
+            print(f"[ERROR] unknown group(s): {', '.join(unknown)}")
+            print("Valid groups:", ", ".join(_PREFETCHERS))
+            return 2
+        print("Selected groups:", ", ".join(selected))
+        for group in selected:
+            _PREFETCHERS[group](device)
+    elif "--only-translation" in args:
         _prefetch_translation()
     elif "--only-xtts" in args:
         _prefetch_xtts(device)

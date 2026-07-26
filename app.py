@@ -581,21 +581,25 @@ def download_and_install_update(progress=gr.Progress(track_tqdm=True)):
 # ── Model manager (built-in downloader) ──────────────────────────
 def _models_status_md():
     from lazytts import models
-    rows = ["| Model | Size | Status |", "|---|---|---|"]
+    rows = ["| Model | Size | Needed | Status |", "|---|---|---|---|"]
     for m in models.status():
         state = "✅ downloaded" if m["present"] else "⬇️ not downloaded"
-        rows.append(f"| {m['label']} | {m['size']} | {state} |")
+        need = "required" if m["essential"] else "optional"
+        rows.append(f"| {m['label']} | {m['size']} | {need} | {state} |")
     return "\n".join(rows)
 
 
 def _model_choices():
     from lazytts import models
-    return [(f"{m['label']} ({m['size']})", m["id"]) for m in models.status()]
+    return [(f"{m['label']} ({m['size']})"
+             + ("" if m["essential"] else " — optional"), m["id"])
+            for m in models.status()]
 
 
-def _missing_model_ids():
+def _default_model_ids():
+    """Models to pre-tick: only what's essential and still missing."""
     from lazytts import models
-    return [m["id"] for m in models.status() if not m["present"]]
+    return models.recommended_missing()
 
 
 def download_models(selected_ids, device_label, progress=gr.Progress(track_tqdm=True)):
@@ -1042,18 +1046,29 @@ def build_ui() -> gr.Blocks:
                     batch_out = gr.File(label="Batch results", file_count="multiple")
 
         # ── Models: built-in downloader (fetches only what's missing) ────
-        _missing_now = _missing_model_ids()
+        # Only the essential group is pre-ticked, and the panel stays closed:
+        # pre-selecting everything missing would mean ~5 GB before a first-time
+        # user can convert one English book. The rest are one click away.
+        from lazytts import models as _models
+        _default_dl = _default_model_ids()
+        _optional_missing = [g for g in _models.missing() if g not in _default_dl]
         _panel_intro = ("Download models on demand — **only missing files are fetched** "
                         "(anything already downloaded is skipped). Needs internet; "
-                        "disabled in offline mode.")
-        if _missing_now:
-            _panel_intro = (f"⚠️ **{len(_missing_now)} model group(s) not downloaded yet** — "
-                            "they're pre-selected below; click **Download selected** to fetch "
-                            "them (progress shows above the button).\n\n") + _panel_intro
-        with gr.Accordion("📥 Models — status & download", open=bool(_missing_now)):
+                        "disabled in offline mode.\n\n"
+                        "**Kokoro** is all you need for English. The others are optional: "
+                        "Piper/MMS/XTTS add more languages and voice cloning, NLLB adds "
+                        "offline translation. Tick whichever you want.")
+        if _optional_missing:
+            _panel_intro += (f"\n\n{len(_optional_missing)} optional group(s) "
+                             "not downloaded — nothing is fetched until you tick it.")
+        if _default_dl:
+            _panel_intro = ("⚠️ **Kokoro isn't downloaded yet** — it's pre-selected below; "
+                            "click **Download selected** to fetch just that "
+                            "(~0.3 GB, progress shows above the button).\n\n") + _panel_intro
+        with gr.Accordion("📥 Models — status & download", open=False):
             gr.Markdown(_panel_intro)
             models_status_md = gr.Markdown(_models_status_md())
-            models_group = gr.CheckboxGroup(choices=_model_choices(), value=_missing_now,
+            models_group = gr.CheckboxGroup(choices=_model_choices(), value=_default_dl,
                                             label="Select models to download")
             with gr.Row():
                 dl_models_btn = gr.Button("📥 Download selected", variant="primary", size="sm")
@@ -1154,7 +1169,7 @@ def build_ui() -> gr.Blocks:
                             outputs=[models_log, models_status_md])
         refresh_models_btn.click(
             lambda: (_models_status_md(),
-                     gr.update(choices=_model_choices(), value=_missing_model_ids())),
+                     gr.update(choices=_model_choices(), value=_default_model_ids())),
             inputs=None, outputs=[models_status_md, models_group])
 
         _core_settings = [
