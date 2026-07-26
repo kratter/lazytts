@@ -1,0 +1,45 @@
+name: Release
+
+# Push a tag like v0.1.0 to build the lightweight net-installer and publish a
+# GitHub Release. The in-app "Check for updates" compares config.APP_VERSION to
+# the latest release tag, so keep the tag and APP_VERSION in sync.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  net-installer:
+    name: Build Windows net-installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The net-installer packages the SOURCE tree (it downloads torch/models on
+      # the user's machine), so it needs only Inno Setup — no heavy build here.
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Compile lazyTTS-Net-Setup.exe
+        shell: pwsh
+        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "installer\lazytts-net.iss"'
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lazyTTS-Net-Setup
+          path: installer_out/lazyTTS-Net-Setup.exe
+
+      - name: Attach to the GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installer_out/lazyTTS-Net-Setup.exe
+          generate_release_notes: true
+
+  # NOTE: full self-contained (~2 GB) / macOS .app / Linux AppImage builds are a
+  # follow-up — they need per-OS PyInstaller runs and external hosting for the
+  # >2 GB self-contained artifact (over GitHub's 2 GB per-file Release limit).

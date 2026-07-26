@@ -412,9 +412,22 @@ def edit_text_from_chapters(state, selected_labels):
 
 
 def save_lexicon(text):
-    from lazytts import lexicon
     lexicon.save_text(text)
     gr.Info("Pronunciation lexicon saved.")
+
+
+def check_updates():
+    if os.environ.get("LAZYTTS_OFFLINE") == "1":
+        return "Offline mode — update check skipped."
+    try:
+        from lazytts import updater
+        info = updater.check()
+    except Exception as exc:
+        return f"⚠️ Couldn't check for updates ({type(exc).__name__})."
+    if info.get("update_available"):
+        return (f"🎉 **{info['latest']}** is available — you have v{info['current']}. "
+                f"[Download / release notes]({info['url']})")
+    return f"✅ You're up to date (v{info['current']})."
 
 
 def convert_action(
@@ -787,6 +800,12 @@ def build_ui() -> gr.Blocks:
                     batch_status = gr.Textbox(label="Batch status", lines=5, interactive=False)
                     batch_out = gr.File(label="Batch results", file_count="multiple")
 
+        # ── Footer: version + update check ───────────────────────
+        with gr.Row():
+            gr.Markdown(f"**lazyTTS** v{config.APP_VERSION} · fully offline")
+            update_btn = gr.Button("🔄 Check for updates", size="sm", scale=0)
+        update_info = gr.Markdown("")
+
         # ── Wiring ──
         _voice_groups = [kokoro_group, piper_group, mms_group, xtts_group]
 
@@ -853,6 +872,7 @@ def build_ui() -> gr.Blocks:
                             inputs=[chapters_state, chapter_select], outputs=edit_text)
         lexicon_save_btn.click(save_lexicon, inputs=lexicon_tb, outputs=None)
         open_folder_btn.click(lambda: open_output_folder(), inputs=None, outputs=None)
+        update_btn.click(check_updates, inputs=None, outputs=update_info)
 
         _core_settings = [
             engine_dd, kokoro_voice_dd, piper_voice_dd, mms_voice_dd, xtts_voice_dd,

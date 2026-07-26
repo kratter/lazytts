@@ -225,3 +225,15 @@ commercial-friendly subset.
 | MP3 export error about ffmpeg | Install ffmpeg and ensure it's on `PATH`, or choose WAV output. |
 | Engine dropdown missing kokoro/piper | That package isn't importable — re-run `setup.bat`. |
 | Kokoro slow / on CPU | Check the **Device** dropdown shows and selects your GPU; if `torch.cuda.is_available()` is `False`, reinstall the **cu128** torch build (`setup.bat` auto-repairs this). |
+
+## 8. Releases, CI & updates
+
+- **CI** (`.github/workflows/ci.yml`): byte-compiles all sources on Windows/macOS/Linux on every push — a fast cross-platform sanity check.
+- **Releases** (`.github/workflows/release.yml`): push a tag like `v0.2.0` to build the lightweight **`lazyTTS-Net-Setup.exe`** and publish a GitHub Release with it. Keep the tag in sync with `APP_VERSION` in `config.py`.
+- **In-app updates**: the footer's **🔄 Check for updates** button compares `APP_VERSION` to the latest release tag and links to the download. Requires the repo's **releases to be public** (a private repo returns 404); skipped in offline mode.
+
+To cut a release:
+```bash
+# bump APP_VERSION in config.py to match, then:
+git tag v0.2.0 && git push origin v0.2.0
+```

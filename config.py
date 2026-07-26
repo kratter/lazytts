@@ -4,6 +4,9 @@ import sys
 from pathlib import Path
 
 APP_NAME = "lazyTTS — eBook to Audiobook"
+APP_VERSION = "0.1.0"
+# owner/repo used for the in-app update check + release links.
+GITHUB_REPO = "kratter/lazytts"
 
 # Directories (created on demand). When frozen (PyInstaller .exe) anchor to the
 # executable's folder so cache/output/hf_cache sit next to lazyTTS.exe; otherwise

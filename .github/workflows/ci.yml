@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  compile:
+    name: Byte-compile (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # Fast, dependency-free sanity check that every source file is valid
+      # Python on all three platforms (heavy deps like torch/coqui are not
+      # installed here — that happens at install time via setup.bat).
+      - name: Byte-compile all sources
+        run: python -m compileall -q app.py config.py prefetch_models.py lazytts
