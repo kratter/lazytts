@@ -186,6 +186,7 @@ def check_structure(epub_path: str) -> list[Issue]:
 
             smil_dir = os.path.dirname(smil_path)
             last_end = -1.0
+            first_begin = None
             pars = smil_tree.findall(".//smil:par", _NS)
             if not pars:
                 err(f"{smil_path}: contains no <par> elements")
@@ -223,6 +224,8 @@ def check_structure(epub_path: str) -> list[Issue]:
                         f"file '{audio_src}'")
                 begin = parse_clock(audio_el.get("clipBegin"))
                 end = parse_clock(audio_el.get("clipEnd"))
+                if first_begin is None:
+                    first_begin = begin
                 if end <= begin:
                     err(f"{smil_path}: <par {par_id}> has empty or reversed clip "
                         f"({audio_el.get('clipBegin')} -> {audio_el.get('clipEnd')})")
@@ -231,11 +234,16 @@ def check_structure(epub_path: str) -> list[Issue]:
                         f"one (starts {begin:.3f}s, previous ended {last_end:.3f}s)")
                 last_end = max(last_end, end)
 
+            # media:duration is this overlay's playback time, not the position
+            # its last clip ends at. Those differ when chapters share one audio
+            # file: a later chapter's clips are offsets into the whole book.
             declared = durations.get(smil_id)
-            if declared is not None and last_end > 0:
-                if abs(declared - last_end) > _DURATION_TOLERANCE:
-                    warn(f"{smil_path}: media:duration is {declared:.3f}s but the "
-                         f"last clip ends at {last_end:.3f}s")
+            if declared is not None and last_end > 0 and first_begin is not None:
+                spanned = last_end - first_begin
+                if abs(declared - spanned) > _DURATION_TOLERANCE:
+                    warn(f"{smil_path}: media:duration is {declared:.3f}s but its "
+                         f"clips span {spanned:.3f}s "
+                         f"({first_begin:.3f}s -> {last_end:.3f}s)")
 
     return issues
 

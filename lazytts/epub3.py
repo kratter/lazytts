@@ -19,6 +19,7 @@ Layout inside the .epub:
 """
 from __future__ import annotations
 
+import re
 import uuid
 import zipfile
 from dataclasses import dataclass, field
@@ -56,9 +57,12 @@ class Sentence:
 class Chapter:
     title: str
     paragraphs: list[list[Sentence]] = field(default_factory=list)
-    audio_path: str = ""      # absolute path to the assembled chapter audio
+    audio_path: str = ""      # absolute path to the assembled audio on disk
     audio_ext: str = "m4a"
-    duration: float = 0.0     # seconds of that audio file
+    duration: float = 0.0     # narration seconds belonging to this chapter
+    # Filename inside OEBPS/audio/. Chapters that share one whole-book track
+    # give the same name here; blank means "one file per chapter".
+    audio_name: str = ""
 
 
 def build(out_path: str, *, chapters: list[Chapter], metadata: dict | None = None,
@@ -106,11 +110,14 @@ def build(out_path: str, *, chapters: list[Chapter], metadata: dict | None = Non
             except OSError:
                 cover_name = cover_type = None
 
+        written_audio: set[str] = set()
         for doc in docs:
             zf.writestr(f"OEBPS/{doc.xhtml_href}", doc.xhtml(title, lang))
             zf.writestr(f"OEBPS/{doc.smil_href}", doc.smil())
-            if doc.chapter.audio_path:
+            # Chapters may share one whole-book track — only store it once.
+            if doc.chapter.audio_path and doc.audio_href not in written_audio:
                 zf.write(doc.chapter.audio_path, f"OEBPS/{doc.audio_href}")
+                written_audio.add(doc.audio_href)
 
         zf.writestr("OEBPS/content.opf", _opf(
             docs, book_id=book_id, title=title, author=author, lang=lang,
@@ -133,10 +140,12 @@ class _ChapterFiles:
         self.stem = f"ch{index:03d}"
         self.xhtml_href = f"text/{self.stem}.xhtml"
         self.smil_href = f"smil/{self.stem}.smil"
-        self.audio_href = f"audio/{self.stem}.{chapter.audio_ext}"
+        # A shared whole-book track names itself; otherwise it's per chapter.
+        audio_name = chapter.audio_name or f"{self.stem}.{chapter.audio_ext}"
+        self.audio_href = f"audio/{audio_name}"
         self.doc_id = f"doc_{self.stem}"
         self.smil_id = f"smil_{self.stem}"
-        self.audio_id = f"aud_{self.stem}"
+        self.audio_id = "aud_" + re.sub(r"\W+", "_", audio_name.rsplit(".", 1)[0])
 
     @property
     def title(self) -> str:
@@ -334,16 +343,20 @@ def _opf(docs: list[_ChapterFiles], *, book_id: str, title: str, author: str,
             f'    <item id="cover-image" href="{cover_name}" '
             f'media-type="{cover_type or "image/jpeg"}" properties="cover-image"/>'
         )
+    seen_audio: set[str] = set()
     for d in docs:
-        audio_type = _AUDIO_TYPES.get(d.chapter.audio_ext, "audio/mpeg")
         manifest += [
             f'    <item id="{d.doc_id}" href="{d.xhtml_href}" '
             f'media-type="application/xhtml+xml" media-overlay="{d.smil_id}"/>',
             f'    <item id="{d.smil_id}" href="{d.smil_href}" '
             'media-type="application/smil+xml"/>',
-            f'    <item id="{d.audio_id}" href="{d.audio_href}" '
-            f'media-type="{audio_type}"/>',
         ]
+        # One manifest entry per audio file, even when chapters share a track.
+        if d.audio_href not in seen_audio:
+            audio_type = _AUDIO_TYPES.get(d.chapter.audio_ext, "audio/mpeg")
+            manifest.append(f'    <item id="{d.audio_id}" href="{d.audio_href}" '
+                            f'media-type="{audio_type}"/>')
+            seen_audio.add(d.audio_href)
 
     spine_attr = ' toc="ncx"' if profile["include_ncx"] else ""
     spine = "\n".join(f'    <itemref idref="{d.doc_id}"/>' for d in docs)

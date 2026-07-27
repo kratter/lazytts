@@ -166,9 +166,21 @@ no forced alignment, so text and speech cannot drift apart.
 | Thorium Reader (desktop) | m4a | Per-paragraph `<seq epub:textref>` structure. |
 | Storyteller (Android / iOS) | mp3 | For the [Storyteller](https://storyteller-platform.dev/) app. |
 
-The differences are small — Media Overlays is one standard — so Universal is
-usually the right choice. Readers known to support Media Overlays: Thorium
-Reader (Windows/macOS/Linux), Thorium Mobile, Storyteller, BookFusion, Dolphin
+Two more controls sit next to it. **Read-along audio** picks the narration
+container (the main **Format** dropdown doesn't apply — this audio lives inside
+the `.epub`, so it has to be something readers can decode); *Profile default*
+follows the table above. **Narration files** chooses one audio file per chapter
+or a single track for the whole book.
+
+Prefer **one file per chapter**. Both are spec-legal, but a single whole-book
+track pushes clip offsets hours into one file, where readers seek less
+accurately (especially VBR MP3) and have to buffer far more to play any
+sentence. Per-chapter also means a damaged file costs you one chapter, not the
+book.
+
+The profile differences are small — Media Overlays is one standard — so
+Universal is usually the right choice. Readers known to support Media Overlays:
+Thorium Reader (Windows/macOS/Linux), Thorium Mobile, Storyteller, BookFusion, Dolphin
 EasyReader, and Apple Books. Note that several popular Android readers
 (Moon+ Reader, ReadEra, Librera) and Google Play Books do **not** — they'll open
 the file as a plain ebook with no sync rather than failing.

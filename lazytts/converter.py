@@ -56,7 +56,8 @@ class Converter:
                 normalize=True, expand=False, lang="en", metadata=None, cover=None,
                 audio_filter=None, chapters=None,
                 translate_to=None, translate_src="eng_Latn", translate_device="cpu",
-                channels=1, two_pass=False, lexicon=None, epub3_profile=None):
+                channels=1, two_pass=False, lexicon=None, epub3_profile=None,
+                epub3_audio_fmt=None, epub3_layout="per_chapter"):
         # output_mode: "single" | "split" | "m4b" | "epub3"
         # chapters: optional pre-extracted/-selected list[Chapter]; if None, extract.
         # translate_to: NLLB target code (e.g. "deu_Latn") or None to keep original.
@@ -109,7 +110,8 @@ class Converter:
                 out_name=out_name or Path(input_path).stem, lang=lang,
                 metadata=metadata, cover=cover, audio_filter=audio_filter,
                 bitrate=bitrate, channels=channels, two_pass=two_pass,
-                profile=epub3_profile)
+                profile=epub3_profile, audio_fmt=epub3_audio_fmt,
+                layout=epub3_layout)
             return
 
         # Chunk each chapter; keep chunks grouped by chapter.
@@ -166,7 +168,7 @@ class Converter:
 
     def _convert_epub3(self, chapters, *, voice, speed, gap, out_name, lang,
                        metadata, cover, audio_filter, bitrate, channels,
-                       two_pass, profile=None):
+                       two_pass, profile=None, audio_fmt=None, layout="per_chapter"):
         """Synthesize one WAV per sentence and package an EPUB 3 read-along.
 
         Timings come straight from the generated audio's frame counts, so text
@@ -214,8 +216,14 @@ class Converter:
         base = _safe_name(out_name)
         stage_dir = os.path.join(self.cache_dir, "_epub3", base)
         os.makedirs(stage_dir, exist_ok=True)
-        audio_fmt = prof["audio_fmt"]
+        # An explicit choice wins over the profile's default container.
+        audio_fmt = audio_fmt or prof["audio_fmt"]
         audio_ext = config.FORMAT_EXT.get(audio_fmt, audio_fmt)
+        one_file = layout == "single"
+        # In single-file mode every chapter's clips index into one shared track,
+        # so timings accumulate across chapters instead of resetting.
+        book_timeline: list[str] = []
+        book_cursor = 0.0
 
         ep_chapters: list[epub3.Chapter] = []
         done = 0
@@ -264,21 +272,51 @@ class Converter:
                 if flat:
                     flat[-1].end = cursor
 
-            ch_audio = os.path.join(stage_dir, f"ch{idx:03d}.{audio_ext}")
-            yield Progress("assembling", total, total,
-                           f"Encoding chapter {idx}/{len(chapters)} narration…")
-            audio.concat_to_output(
-                timeline, ch_audio, sr, fmt=audio_fmt, bitrate=bitrate,
-                gap=0.0, work_dir=self.cache_dir, metadata=None, cover=None,
-                audio_filter=audio_filter, channels=channels, two_pass=two_pass)
-
-            ep_chapters.append(epub3.Chapter(
-                title=ch.title or f"Chapter {idx}",
-                paragraphs=ep_paragraphs, audio_path=ch_audio,
-                audio_ext=audio_ext, duration=cursor))
+            if one_file:
+                # Append to the shared track and shift this chapter's timings
+                # to where they land in it. A chapter break gets the full gap.
+                offset = book_cursor
+                if book_timeline and paragraph_gap > 0:
+                    sil = audio.silence_wav(self.cache_dir, paragraph_gap, sr)
+                    book_timeline.append(sil)
+                    offset += audio.wav_seconds(sil, sr)
+                for para in ep_paragraphs:
+                    for sentence in para:
+                        sentence.begin += offset
+                        sentence.end += offset
+                book_timeline.extend(timeline)
+                book_cursor = offset + cursor
+                ep_chapters.append(epub3.Chapter(
+                    title=ch.title or f"Chapter {idx}",
+                    paragraphs=ep_paragraphs, audio_path="",  # set after encoding
+                    audio_ext=audio_ext, duration=cursor,
+                    audio_name=f"book.{audio_ext}"))
+            else:
+                ch_audio = os.path.join(stage_dir, f"ch{idx:03d}.{audio_ext}")
+                yield Progress("assembling", total, total,
+                               f"Encoding chapter {idx}/{len(chapters)} narration…")
+                audio.concat_to_output(
+                    timeline, ch_audio, sr, fmt=audio_fmt, bitrate=bitrate,
+                    gap=0.0, work_dir=self.cache_dir, metadata=None, cover=None,
+                    audio_filter=audio_filter, channels=channels, two_pass=two_pass)
+                ep_chapters.append(epub3.Chapter(
+                    title=ch.title or f"Chapter {idx}",
+                    paragraphs=ep_paragraphs, audio_path=ch_audio,
+                    audio_ext=audio_ext, duration=cursor))
 
         if not ep_chapters:
             raise ValueError("Nothing was synthesized.")
+
+        if one_file:
+            yield Progress("assembling", total, total,
+                           "Encoding whole-book narration…")
+            book_audio = os.path.join(stage_dir, f"book.{audio_ext}")
+            audio.concat_to_output(
+                book_timeline, book_audio, sr, fmt=audio_fmt, bitrate=bitrate,
+                gap=0.0, work_dir=self.cache_dir, metadata=None, cover=None,
+                audio_filter=audio_filter, channels=channels, two_pass=two_pass)
+            for ep_ch in ep_chapters:
+                ep_ch.audio_path = book_audio
 
         out_path = os.path.join(self.output_dir, f"{base}.epub")
         yield Progress("assembling", total, total, "Packaging EPUB 3 read-along…")

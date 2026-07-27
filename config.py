@@ -100,6 +100,27 @@ EPUB3_PROFILES = {
 }
 DEFAULT_EPUB3_PROFILE = "Universal (max compatibility)"
 
+# Narration container for the read-along. The main Format dropdown doesn't
+# apply here: the audio lives inside the .epub, so it has to be something
+# ebook readers can decode. "Profile default" follows the table above.
+EPUB3_AUDIO_FORMATS = {
+    "Profile default": None,
+    "m4a (AAC) — most accurate sync": "m4a",
+    "mp3 — widest reader support": "mp3",
+}
+DEFAULT_EPUB3_AUDIO_FORMAT = "Profile default"
+
+# How the narration is split across files.
+#   per_chapter -> one audio file per chapter (recommended). Clip offsets stay
+#                  small and the reader only loads the chapter it's playing.
+#   single      -> one file for the whole book. Offsets run into the hours,
+#                  which some readers seek through less accurately.
+EPUB3_AUDIO_LAYOUTS = {
+    "One file per chapter (recommended)": "per_chapter",
+    "Single file for the whole book": "single",
+}
+DEFAULT_EPUB3_AUDIO_LAYOUT = "One file per chapter (recommended)"
+
 SUPPORTED_EXTENSIONS = [".txt", ".pdf", ".epub", ".docx"]
 
 # Kokoro voices. Prefix a* = American English (lang_code 'a'),
