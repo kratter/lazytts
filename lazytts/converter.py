@@ -19,7 +19,7 @@ from pathlib import Path
 
 import config
 
-from . import audio, chunker, document, epub3, epubcheck
+from . import audio, chunker, document, epub3, epubcheck, textnorm
 from .engines.base import TTSEngine
 
 
@@ -50,6 +50,20 @@ class Converter:
         key = f"{self.engine.name}|{voice}|{speed}|{text}"
         digest = hashlib.sha1(key.encode("utf-8")).hexdigest()
         return os.path.join(self.cache_dir, f"{digest}.wav")
+
+    def _synthesize(self, text, voice, speed) -> str:
+        """Cache path for *text*, synthesizing it first if it isn't cached.
+
+        The engine gets speech-normalized text (ellipses and dashes turned into
+        real pauses); callers keep the original for display. The cache is keyed
+        on what's actually spoken, so two spellings of the same utterance share
+        one WAV.
+        """
+        spoken = textnorm.for_speech(text)
+        wav_path = self._chunk_path(voice, speed, spoken)
+        if not os.path.exists(wav_path):
+            self.engine.synthesize_to_file(spoken, wav_path, voice=voice, speed=speed)
+        return wav_path
 
     def convert(self, input_path, *, voice, speed, out_fmt="mp3", bitrate="128k",
                 gap=config.CHUNK_GAP_SECONDS, out_name=None, output_mode="single",
@@ -128,10 +142,7 @@ class Converter:
         for chunks in per_chapter_chunks:
             wavs: list[str] = []
             for chunk in chunks:
-                wav_path = self._chunk_path(voice, speed, chunk)
-                if not os.path.exists(wav_path):
-                    self.engine.synthesize_to_file(chunk, wav_path, voice=voice, speed=speed)
-                wavs.append(wav_path)
+                wavs.append(self._synthesize(chunk, voice, speed))
                 done += 1
                 yield Progress("synth", done, total, f"Synthesized chunk {done}/{total}")
             per_chapter_wavs.append(wavs)
@@ -247,10 +258,7 @@ class Converter:
 
                     begin = cursor
                     for piece in pieces:
-                        wav_path = self._chunk_path(voice, speed, piece)
-                        if not os.path.exists(wav_path):
-                            self.engine.synthesize_to_file(
-                                piece, wav_path, voice=voice, speed=speed)
+                        wav_path = self._synthesize(piece, voice, speed)
                         timeline.append(wav_path)
                         cursor += audio.wav_seconds(wav_path, sr)
                         done += 1

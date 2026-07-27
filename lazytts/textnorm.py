@@ -108,6 +108,28 @@ def expand_abbreviations(text: str, lang: str = "en") -> str:
     return text
 
 
+def for_speech(text: str) -> str:
+    """Rewrite punctuation the engines vocalize badly into plain pauses.
+
+    Applied only to what's handed to the TTS engine, never to the text shown in
+    the read-along — an ellipsis should still *look* like an ellipsis. Engines
+    tend to either read "..." aloud or emit a glitch, so it becomes real
+    punctuation: a sentence break where one is clearly intended, a comma
+    (a short pause) otherwise.
+    """
+    # Ellipsis at the very end, or followed by something that starts a new
+    # sentence -> a full stop.
+    text = re.sub(r"\s*(?:\.{3,}|…)\s*$", ".", text)
+    text = re.sub(r"\s*(?:\.{3,}|…)\s*(?=[\"'”’)\]]*\s*[A-ZÀ-Þ])", ". ", text)
+    # Otherwise it's a mid-sentence trailing-off -> a comma.
+    text = re.sub(r"\s*(?:\.{3,}|…)\s*", ", ", text)
+    # Em/en dashes used as asides are read as "dash" by some voices.
+    text = re.sub(r"\s*[—–]\s*", ", ", text)
+    # Decorative runs of dashes/underscores carry no speech at all.
+    text = re.sub(r"[-_]{2,}", " ", text)
+    return re.sub(r"[ \t]+", " ", text).strip()
+
+
 def normalize(text: str, *, expand: bool = False, lang: str = "en") -> str:
     text = dehyphenate(text)
     text = strip_page_numbers(text)

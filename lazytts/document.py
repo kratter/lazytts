@@ -14,6 +14,19 @@ class Chapter:
     text: str
 
 
+# Extracted text uses one line per paragraph — a "\n" is a real block boundary,
+# never a soft wrap. Callers rely on this: the EPUB read-along turns each line
+# into a <p>, so a stray newline shows up as a line break mid-sentence.
+_BLOCK_TAGS = [
+    "p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote",
+    "pre", "td", "th", "dd", "dt", "figcaption", "caption",
+]
+
+# Formats whose text arrives hard-wrapped at some column, so newlines inside a
+# paragraph are soft wraps that have to be rejoined.
+_HARD_WRAPPED = {".txt", ".pdf"}
+
+
 def extract_chapters(path: str | Path, *, normalize: bool = True,
                      expand: bool = False, lang: str = "en") -> list[Chapter]:
     """Return the document split into chapters. Always at least one chapter.
@@ -40,8 +53,11 @@ def extract_chapters(path: str | Path, *, normalize: bool = True,
     for i, ch in enumerate(raw, 1):
         text = ch.text
         if normalize:
+            # De-hyphenation needs the original line breaks, so it runs first.
             text = textnorm.normalize(text, expand=expand, lang=lang)
         text = _clean(text)
+        if ext in _HARD_WRAPPED:
+            text = _reflow(text)
         if not text:
             continue
         title = ch.title.strip() or f"Chapter {i}"
@@ -157,7 +173,7 @@ def _epub_chapters(path: Path) -> list[Chapter]:
     """Split an EPUB by its table-of-contents sections (what a reader shows),
     not by internal spine files (which are often per-page fragments)."""
     import ebooklib
-    from bs4 import BeautifulSoup, NavigableString, Tag
+    from bs4 import BeautifulSoup
     from ebooklib import epub
 
     book = epub.read_epub(str(path))
@@ -215,27 +231,29 @@ def _epub_chapters(path: Path) -> list[Chapter]:
         anchors = {a: t for t, a in entries if a}
 
         if len(entries) <= 1 or not anchors:
-            chapters.append(Chapter(entries[0][0], soup.get_text(separator="\n")))
+            chapters.append(Chapter(entries[0][0], _block_text(soup)))
             continue
 
-        # Multiple TOC anchors in one file -> split at those anchors.
+        # Multiple TOC anchors in one file -> split at those anchors. Walk tags
+        # in document order, switching section at each anchor and collecting
+        # whole blocks, so inline markup never splits a sentence.
         body = soup.body or soup
         current = entries[0][0]
         buf: dict[str, list[str]] = {current: []}
         seq = [current]
-        for node in body.descendants:
-            if isinstance(node, Tag):
-                nid = node.get("id")
-                if nid and nid in anchors:
-                    current = anchors[nid]
-                    if current not in buf:
-                        buf[current] = []
-                        seq.append(current)
-            elif isinstance(node, NavigableString):
-                if str(node).strip():
-                    buf[current].append(str(node))
+        for el in body.find_all(True):
+            nid = el.get("id")
+            if nid and nid in anchors:
+                current = anchors[nid]
+                if current not in buf:
+                    buf[current] = []
+                    seq.append(current)
+            if el.name in _BLOCK_TAGS and not el.find(_BLOCK_TAGS):
+                text = el.get_text().strip()
+                if text:
+                    buf[current].append(text)
         for t in seq:
-            chapters.append(Chapter(t, " ".join(buf[t])))
+            chapters.append(Chapter(t, "\n".join(buf[t])))
 
     return chapters or _epub_spine_chapters(book, docs)
 
@@ -260,7 +278,7 @@ def _epub_spine_chapters(book, docs) -> list[Chapter]:
             tag.decompose()
         heading = soup.find(["h1", "h2", "h3"])
         title = heading.get_text(" ", strip=True) if heading else ""
-        chapters.append(Chapter(title, soup.get_text(separator="\n")))
+        chapters.append(Chapter(title, _block_text(soup)))
     return chapters
 
 
@@ -289,7 +307,58 @@ def _docx_chapters(path: Path) -> list[Chapter]:
 
 
 def _clean(text: str) -> str:
-    text = re.sub(r"[ \t]+", " ", text)
+    # Drop characters that are invisible to a TTS engine but not to a reader:
+    # zero-width spaces/joiners, BOMs, and soft hyphens (which render as a
+    # stray hyphen once our line breaks differ from the source's).
+    text = re.sub(r"[​-‍⁠﻿­]", "", text)
+    # Collapse every run of horizontal whitespace, not just spaces and tabs:
+    # non-breaking and typographic spaces survive HTML collapsing, so a run of
+    # them shows up verbatim in the read-along.
+    text = re.sub(r"[^\S\n]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = re.sub(r" *\n *", "\n", text)
     return text.strip()
+
+
+def _reflow(text: str) -> str:
+    """Rejoin soft-wrapped lines so one line is one paragraph.
+
+    Project Gutenberg text and PDF page text are hard-wrapped at some column,
+    which breaks lines mid-sentence. The audio modes regroup sentences anyway,
+    but the read-along turns each line into its own paragraph — a visible break
+    in the middle of a sentence, plus a paragraph-length pause in the audio.
+    Blank lines still separate paragraphs.
+    """
+    paragraphs = []
+    for block in re.split(r"\n\s*\n", text):
+        lines = [line.strip() for line in block.split("\n") if line.strip()]
+        if lines:
+            paragraphs.append(" ".join(lines))
+    return "\n".join(paragraphs)
+
+
+def _block_text(soup) -> str:
+    """Text from HTML with one line per block element.
+
+    BeautifulSoup's get_text(separator="\\n") breaks at *every* tag boundary, so
+    inline markup splits sentences and even words: "The <i>x</i> came" becomes
+    three lines, and "I<span>n</span> 1850" becomes "I", "n", "1850". Taking
+    each block's text as a unit keeps inline content together.
+    """
+    for br in soup.find_all("br"):
+        br.replace_with("\n")
+
+    blocks: list[str] = []
+    for el in soup.find_all(_BLOCK_TAGS):
+        # Only leaf blocks — a container's text is covered by its children.
+        if el.find(_BLOCK_TAGS):
+            continue
+        text = el.get_text()  # no separator: inline spacing is already correct
+        if text.strip():
+            blocks.append(text.strip())
+
+    if not blocks:
+        # No block markup at all (bare text in <body>); fall back to spaces so
+        # words don't get glued together.
+        return soup.get_text(separator=" ")
+    return "\n".join(blocks)

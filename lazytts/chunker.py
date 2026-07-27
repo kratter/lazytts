@@ -8,6 +8,31 @@ import re
 # boundary with a NUL and split on it instead.
 _BOUNDARY = re.compile(r"([.!?]+[\"'”’)\]]*)(\s+)")
 
+# An ellipsis is a pause, not the end of a sentence, but "..." matches [.!?]+
+# and would split one. Hide ellipses behind placeholders while splitting, then
+# put them back verbatim.
+_ELLIPSIS = re.compile(r"\.{3,}|…")
+_ELLIPSIS_MARK = "\x02"
+
+
+def _hide_ellipses(text: str) -> tuple[str, list[str]]:
+    found: list[str] = []
+
+    def stash(match: re.Match) -> str:
+        found.append(match.group(0))
+        return _ELLIPSIS_MARK
+
+    return _ELLIPSIS.sub(stash, text), found
+
+
+def _restore_ellipses(parts: list[str], found: list[str]) -> list[str]:
+    """Put the originals back, in order — placeholders were stashed in order."""
+    if not found:
+        return parts
+    pending = iter(found)
+    return [re.sub(_ELLIPSIS_MARK, lambda _m: next(pending), part)
+            for part in parts]
+
 
 def paragraph_sentences(text: str) -> list[list[str]]:
     """Sentences grouped by source paragraph.
@@ -22,8 +47,10 @@ def paragraph_sentences(text: str) -> list[list[str]]:
         paragraph = paragraph.strip()
         if not paragraph:
             continue
-        marked = _BOUNDARY.sub(lambda m: m.group(1) + "\x00", paragraph)
+        hidden, ellipses = _hide_ellipses(paragraph)
+        marked = _BOUNDARY.sub(lambda m: m.group(1) + "\x00", hidden)
         sentences = [s.strip() for s in marked.split("\x00") if s.strip()]
+        sentences = _restore_ellipses(sentences, ellipses)
         if sentences:
             paragraphs.append(sentences)
     return paragraphs
