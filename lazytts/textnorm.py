@@ -117,6 +117,14 @@ def for_speech(text: str) -> str:
     punctuation: a sentence break where one is clearly intended, a comma
     (a short pause) otherwise.
     """
+    # A whole line of decoration (scene breaks like "* * *", "~~~", "###") has
+    # no speech in it at all; left in, voices spell the symbols out one by one.
+    text = re.sub(r"^\s*[*~#=•·—–_+°^|]{1,}(?:\s*[*~#=•·—–_+°^|]+)*\s*$", " ", text)
+
+    # Spaced-out ellipses (". . .") are common in typeset prose and were read
+    # literally, because the earlier patterns only matched consecutive dots.
+    text = re.sub(r"\.\s*\.\s*\.(?:\s*\.)*", "…", text)
+
     # Ellipsis at the very end, or followed by something that starts a new
     # sentence -> a full stop.
     text = re.sub(r"\s*(?:\.{3,}|…)\s*$", ".", text)
@@ -127,6 +135,27 @@ def for_speech(text: str) -> str:
     text = re.sub(r"\s*[—–]\s*", ", ", text)
     # Decorative runs of dashes/underscores carry no speech at all.
     text = re.sub(r"[-_]{2,}", " ", text)
+
+    # Guillemets and low quotes are quotation marks, but several voices announce
+    # them by name. Plain quotes are safe: engines treat them as prosody.
+    text = re.sub(r"[«»‹›„‚]", '"', text)
+
+    # Ampersand is meaningful, so say it rather than dropping it.
+    text = re.sub(r"\s*&\s*", " and ", text)
+
+    # Symbols left mid-sentence that voices vocalize ("bullet", "section",
+    # "vertical bar"). A comma keeps the phrasing the punctuation implied.
+    text = re.sub(r"\s*[•·‣▪◦]\s*", ", ", text)
+    text = re.sub(r"[§¶†‡|¦^~*]+", " ", text)
+
+    # Collapse any doubled-up commas the substitutions above can leave behind
+    # ("..., —" -> ", ,").
+    text = re.sub(r"(?:,\s*){2,}", ", ", text)
+    text = re.sub(r"\s+([,.!?;:])", r"\1", text)
+    text = re.sub(r",\s*([.!?])", r"\1", text)
+    # A comma straight after other punctuation reads as a stumble ("Items:,").
+    text = re.sub(r"([:;,.!?])\s*,", r"\1", text)
+
     return re.sub(r"[ \t]+", " ", text).strip()
 
 
