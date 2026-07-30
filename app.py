@@ -1129,6 +1129,21 @@ def build_ui() -> gr.Blocks:
                     batch_status = gr.Textbox(label="Batch status", lines=5, interactive=False)
                     batch_out = gr.File(label="Batch results", file_count="multiple")
 
+            with gr.Accordion("📲 Send to device (same Wi-Fi)", open=False):
+                gr.Markdown(
+                    "Share finished **read-along .epub** files with the lazyREADER "
+                    "Android app over your local network. Scan the QR code in the "
+                    "app's *Sync* screen, or type the address in by hand.\n\n"
+                    "Read-only, and only while switched on: it serves the `.epub` "
+                    "files in your output folder and nothing else."
+                )
+                with gr.Row():
+                    sync_start_btn = gr.Button("▶ Start sharing", variant="primary", size="sm")
+                    sync_stop_btn = gr.Button("⏹ Stop", size="sm")
+                sync_status_md = gr.Markdown("Not sharing.")
+                sync_qr_img = gr.Image(label="Scan in lazyREADER", type="filepath",
+                                       visible=False, height=240)
+
         # ── Models: built-in downloader (fetches only what's missing) ────
         # Only the essential group is pre-ticked, and the panel stays closed:
         # pre-selecting everything missing would mean ~5 GB before a first-time
@@ -1149,7 +1164,10 @@ def build_ui() -> gr.Blocks:
             _panel_intro = ("⚠️ **Kokoro isn't downloaded yet** — it's pre-selected below; "
                             "click **Download selected** to fetch just that "
                             "(~0.3 GB, progress shows above the button).\n\n") + _panel_intro
-        with gr.Accordion("📥 Models — status & download", open=False):
+        # Models and updates are both "manage the installation" rather than
+        # "convert this book", so they live together out of the main flow.
+        with gr.Accordion("⚙️ Settings — models & updates", open=False):
+            gr.Markdown("#### Models")
             gr.Markdown(_panel_intro)
             models_status_md = gr.Markdown(_models_status_md())
             models_group = gr.CheckboxGroup(choices=_model_choices(), value=_default_dl,
@@ -1159,27 +1177,14 @@ def build_ui() -> gr.Blocks:
                 refresh_models_btn = gr.Button("🔄 Refresh status", size="sm")
             models_log = gr.Textbox(label="Download progress", lines=4, interactive=False)
 
-        with gr.Accordion("📲 Send to device (same Wi-Fi)", open=False):
-            gr.Markdown(
-                "Share finished **read-along .epub** files with the lazyREADER "
-                "Android app over your local network. Scan the QR code in the "
-                "app's *Sync* screen, or type the address in by hand.\n\n"
-                "Read-only, and only while switched on: it serves the `.epub` "
-                "files in your output folder and nothing else."
-            )
+            gr.Markdown("#### Updates")
             with gr.Row():
-                sync_start_btn = gr.Button("▶ Start sharing", variant="primary", size="sm")
-                sync_stop_btn = gr.Button("⏹ Stop", size="sm")
-            sync_status_md = gr.Markdown("Not sharing.")
-            sync_qr_img = gr.Image(label="Scan in lazyREADER", type="filepath",
-                                   visible=False, height=240)
+                update_btn = gr.Button("🔄 Check for updates", size="sm")
+                get_update_btn = gr.Button("⬇️ Download & install update", size="sm")
+            update_info = gr.Markdown("")
 
-        # ── Footer: version + update check ───────────────────────
-        with gr.Row():
-            gr.Markdown(f"**lazyTTS** v{config.APP_VERSION} · fully offline")
-            update_btn = gr.Button("🔄 Check for updates", size="sm", scale=0)
-            get_update_btn = gr.Button("⬇️ Download & install update", size="sm", scale=0)
-        update_info = gr.Markdown("")
+        # ── Footer ───────────────────────────────────────────────
+        gr.Markdown(f"**lazyTTS** v{config.APP_VERSION} · fully offline")
 
         # ── Wiring ──
         _voice_groups = [kokoro_group, piper_group, mms_group, xtts_group]
