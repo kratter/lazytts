@@ -35,6 +35,7 @@ for pkg in [
     "ko_speech_tools",  # coqui-tts split-out (ships a .data subpackage XTTS needs)
     "webview",  # pywebview native window (best-effort; app falls back to browser)
     "ebooklib", "fitz", "docx", "soundfile",
+    "segno",  # QR codes for "Send to device"
 ]:
     try:
         d, b, h = collect_all(pkg)
