@@ -179,6 +179,14 @@ accurately (especially VBR MP3) and have to buffer far more to play any
 sentence. Per-chapter also means a damaged file costs you one chapter, not the
 book.
 
+### Send it to your phone (same Wi-Fi)
+
+**Send to device** shares the finished read-along `.epub` files with the
+[lazyREADER](https://github.com/kratter/lazyREADER) Android app over your local
+network. Press **Start sharing**, then scan the QR code in the app's *Sync*
+screen (or type the address in). It's read-only and only listens while switched
+on: it serves the `.epub` files in your output folder and nothing else.
+
 The profile differences are small — Media Overlays is one standard — so
 Universal is usually the right choice. Readers known to support Media Overlays:
 Thorium Reader (Windows/macOS/Linux), Thorium Mobile, Storyteller, BookFusion, Dolphin

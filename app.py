@@ -17,7 +17,7 @@ from pathlib import Path
 import config
 import gradio as gr
 
-from lazytts import document, lexicon, settings_store
+from lazytts import document, lanserver, lexicon, settings_store
 from lazytts.converter import Converter
 from lazytts.engines import build_engine, device_id, list_cuda_devices
 
@@ -579,6 +579,36 @@ def download_and_install_update(progress=gr.Progress(track_tqdm=True)):
 
 
 # ── Model manager (built-in downloader) ──────────────────────────
+# ── Send to device (LAN sharing) ─────────────────────────────────
+_sync_server = lanserver.LibraryServer()
+
+
+def _sync_start():
+    """Start sharing and hand back status text plus a QR of the address."""
+    try:
+        url = _sync_server.start()
+    except OSError as exc:
+        return (f"Could not start sharing on port {lanserver.DEFAULT_PORT}: "
+                f"{exc}"), gr.update(visible=False)
+
+    png = lanserver.qr_png(url)
+    if png is None:
+        return (f"**Sharing at `{url}`** — enter that in lazyREADER. "
+                "(Install `segno` for a scannable QR code.)"), gr.update(visible=False)
+
+    path = os.path.join(str(config.CACHE_DIR), "sync_qr.png")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as handle:
+        handle.write(png)
+    return (f"**Sharing at `{url}`** — scan the code in lazyREADER, "
+            "or type the address in."), gr.update(value=path, visible=True)
+
+
+def _sync_stop():
+    _sync_server.stop()
+    return "Not sharing.", gr.update(visible=False)
+
+
 def _models_status_md():
     from lazytts import models
     rows = ["| Model | Size | Needed | Status |", "|---|---|---|---|"]
@@ -947,6 +977,9 @@ def build_ui() -> gr.Blocks:
                 chapters_info = gr.Markdown("Upload a document, then load chapters.")
                 chapter_select = gr.CheckboxGroup([], label="Export these chapters")
                 with gr.Row():
+                    select_all_btn = gr.Button("☑ Select all", size="sm", variant="secondary")
+                    select_none_btn = gr.Button("☐ Deselect all", size="sm", variant="secondary")
+                with gr.Row():
                     chapter_preview_dd = gr.Dropdown([], label="Preview chapter", scale=3)
                     preview_chapter_btn = gr.Button("🔊", scale=1, min_width=48)
                 chapter_preview_audio = gr.Audio(label="Chapter preview", type="filepath", autoplay=True)
@@ -1105,6 +1138,21 @@ def build_ui() -> gr.Blocks:
                 refresh_models_btn = gr.Button("🔄 Refresh status", size="sm")
             models_log = gr.Textbox(label="Download progress", lines=4, interactive=False)
 
+        with gr.Accordion("📲 Send to device (same Wi-Fi)", open=False):
+            gr.Markdown(
+                "Share finished **read-along .epub** files with the lazyREADER "
+                "Android app over your local network. Scan the QR code in the "
+                "app's *Sync* screen, or type the address in by hand.\n\n"
+                "Read-only, and only while switched on: it serves the `.epub` "
+                "files in your output folder and nothing else."
+            )
+            with gr.Row():
+                sync_start_btn = gr.Button("▶ Start sharing", variant="primary", size="sm")
+                sync_stop_btn = gr.Button("⏹ Stop", size="sm")
+            sync_status_md = gr.Markdown("Not sharing.")
+            sync_qr_img = gr.Image(label="Scan in lazyREADER", type="filepath",
+                                   visible=False, height=240)
+
         # ── Footer: version + update check ───────────────────────
         with gr.Row():
             gr.Markdown(f"**lazyTTS** v{config.APP_VERSION} · fully offline")
@@ -1160,6 +1208,17 @@ def build_ui() -> gr.Blocks:
         _chap_out = [chapters_state, chapter_select, chapter_preview_dd, chapters_info]
         file_in.change(load_chapters, inputs=[file_in, normalize_cb, expand_cb, text_lang_dd], outputs=_chap_out)
         load_btn.click(load_chapters, inputs=[file_in, normalize_cb, expand_cb, text_lang_dd], outputs=_chap_out)
+
+        # Labels are rebuilt from state rather than read back off the widget, so
+        # "select all" still works if the choices were refreshed in between.
+        sync_start_btn.click(_sync_start, outputs=[sync_status_md, sync_qr_img])
+        sync_stop_btn.click(_sync_stop, outputs=[sync_status_md, sync_qr_img])
+
+        select_all_btn.click(
+            lambda state: gr.update(value=_chapter_labels(state or [])),
+            inputs=chapters_state, outputs=chapter_select)
+        select_none_btn.click(
+            lambda: gr.update(value=[]), outputs=chapter_select)
 
         preview_btn.click(
             preview_voice,

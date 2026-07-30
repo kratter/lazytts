@@ -60,3 +60,6 @@ pyttsx3>=2.90
 
 # Packaging
 pyinstaller>=6.10
+
+# QR codes for the "Send to device" panel (pure Python, no native deps).
+segno>=1.6
