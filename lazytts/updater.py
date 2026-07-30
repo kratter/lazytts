@@ -10,12 +10,31 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.error
 import urllib.request
 
 import config
 
 _API = f"https://api.github.com/repos/{config.GITHUB_REPO}/releases/latest"
 _RELEASES_URL = f"https://github.com/{config.GITHUB_REPO}/releases"
+
+
+class RateLimited(RuntimeError):
+    """GitHub's anonymous API allowance for this IP is used up.
+
+    Unauthenticated callers get 60 requests an hour per address, shared by
+    everything on the network. Worth telling apart from a real failure: nothing
+    is broken and it clears by itself.
+    """
+
+    def __init__(self, reset_at: float | None = None):
+        self.reset_at = reset_at
+        when = ""
+        if reset_at:
+            import time as _time
+            when = f" Try again after {_time.strftime('%H:%M', _time.localtime(reset_at))}."
+        super().__init__(
+            "GitHub is rate-limiting update checks from this network." + when)
 
 
 def _parse(version: str) -> tuple[int, ...]:
@@ -33,8 +52,17 @@ def check(timeout: float = 6.0) -> dict:
         raise RuntimeError("offline mode")
     req = urllib.request.Request(
         _API, headers={"Accept": "application/vnd.github+json", "User-Agent": "lazyTTS"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        # 403 with no remaining allowance is throttling, not a broken check.
+        # 429 is the newer spelling of the same thing.
+        remaining = exc.headers.get("X-RateLimit-Remaining")
+        if exc.code == 429 or (exc.code == 403 and remaining == "0"):
+            reset = exc.headers.get("X-RateLimit-Reset")
+            raise RateLimited(float(reset) if reset else None) from exc
+        raise
     latest = (data.get("tag_name") or "").strip()
     url = data.get("html_url") or _RELEASES_URL
     current = config.APP_VERSION

@@ -530,9 +530,12 @@ def save_lexicon(text):
 def check_updates():
     if os.environ.get("LAZYTTS_OFFLINE") == "1":
         return "Offline mode — update check skipped."
+    from lazytts import updater
     try:
-        from lazytts import updater
         info = updater.check()
+    except updater.RateLimited as exc:
+        return (f"⏳ {exc} Meanwhile you can "
+                f"[see the releases]({updater._RELEASES_URL}) in your browser.")
     except Exception as exc:
         return f"⚠️ Couldn't check for updates ({type(exc).__name__})."
     if info.get("update_available"):
