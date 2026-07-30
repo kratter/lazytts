@@ -7,7 +7,7 @@
 ; Requires dist\lazyTTS\lazyTTS.exe to exist.
 
 #define AppName "lazyTTS"
-#define AppVersion "0.9.5"
+#define AppVersion "0.10.0"
 #define AppExe "lazyTTS.exe"
 
 [Setup]

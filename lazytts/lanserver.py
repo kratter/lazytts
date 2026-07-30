@@ -90,6 +90,13 @@ class _Handler(BaseHTTPRequestHandler):
                 "app": "lazytts",
                 "version": config.APP_VERSION,
                 "books": _books(self.root),
+                # Advertised so the app can offer exactly the languages this
+                # install can actually produce.
+                "languages": [
+                    {"label": label, "code": code}
+                    for label, code in config.TRANSLATE_TARGETS.items()
+                    if code
+                ],
             })
             return
 
@@ -98,6 +105,42 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         self._json({"error": "not found"}, 404)
+
+    def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        if urlparse(self.path).path != "/translate":
+            self._json({"error": "not found"}, 404)
+            return
+
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            # A word or a sentence; anything larger isn't what this is for.
+            if length <= 0 or length > 8192:
+                self._json({"error": "bad request"}, 400)
+                return
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            text = str(payload.get("text") or "").strip()
+            target = str(payload.get("to") or "")
+            source = str(payload.get("from") or "eng_Latn")
+        except (OSError, ValueError):
+            self._json({"error": "bad request"}, 400)
+            return
+
+        if not text or target not in set(config.TRANSLATE_TARGETS.values()):
+            self._json({"error": "unknown target language"}, 400)
+            return
+
+        try:
+            # The same offline NLLB translator the desktop app uses, so the
+            # phone needs no model of its own. First call loads it, which is
+            # slow; later ones are quick.
+            from . import translate as _translate
+
+            result = _translate.translate_text(text, source, target)
+        except Exception as exc:  # noqa: BLE001 - never take the server down
+            self._json({"error": f"translation failed: {exc}"}, 500)
+            return
+
+        self._json({"text": result, "from": source, "to": target})
 
     def _serve_book(self, name: str) -> None:
         # basename() alone defeats "../" traversal, and the extension check keeps

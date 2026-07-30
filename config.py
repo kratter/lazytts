@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "lazyTTS — eBook to Audiobook"
-APP_VERSION = "0.9.5"
+APP_VERSION = "0.10.0"
 # owner/repo used for the in-app update check + release links.
 GITHUB_REPO = "kratter/lazytts"
 
