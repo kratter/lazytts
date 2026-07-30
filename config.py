@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "lazyTTS — eBook to Audiobook"
-APP_VERSION = "0.7.3"
+APP_VERSION = "0.8.0"
 # owner/repo used for the in-app update check + release links.
 GITHUB_REPO = "kratter/lazytts"
 
@@ -75,6 +75,13 @@ SENTENCE_GAP_SECONDS = 0.15
 #   include_ncx   -> add an EPUB 2 NCX alongside the EPUB 3 nav document, for
 #                    readers that still look for it.
 #   audio_fmt     -> container for the per-chapter narration track.
+#   word_level    -> emit one <par> per *word* (wrapped in a <seq> per sentence)
+#                    instead of one per sentence, so a reader can highlight the
+#                    word being spoken. Needs an engine that reports word times
+#                    — Kokoro does; the export falls back to sentence-level for
+#                    any chapter where they're missing. Off by default: it
+#                    multiplies the number of <par>s by roughly the words per
+#                    sentence, and not every reader handles that gracefully.
 EPUB3_PROFILES = {
     "Universal (max compatibility)": {
         "active_class": "-epub-media-overlay-active",
@@ -82,6 +89,7 @@ EPUB3_PROFILES = {
         "gapless": True,
         "include_ncx": True,
         "audio_fmt": "m4a",
+        "word_level": False,
     },
     "Thorium Reader (desktop)": {
         "active_class": "-epub-media-overlay-active",
@@ -89,6 +97,7 @@ EPUB3_PROFILES = {
         "gapless": True,
         "include_ncx": False,
         "audio_fmt": "m4a",
+        "word_level": False,
     },
     "Storyteller (Android / iOS)": {
         "active_class": "-epub-media-overlay-active",
@@ -96,6 +105,15 @@ EPUB3_PROFILES = {
         "gapless": True,
         "include_ncx": False,
         "audio_fmt": "mp3",
+        "word_level": False,
+    },
+    "lazyREADER (word-by-word)": {
+        "active_class": "-epub-media-overlay-active",
+        "textref_seq": False,
+        "gapless": True,
+        "include_ncx": False,
+        "audio_fmt": "mp3",
+        "word_level": True,
     },
 }
 DEFAULT_EPUB3_PROFILE = "Universal (max compatibility)"

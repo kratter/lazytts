@@ -11,6 +11,7 @@ Two output modes:
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -20,6 +21,7 @@ from pathlib import Path
 import config
 
 from . import audio, chunker, document, epub3, epubcheck, textnorm
+from .engines import base as engines_base
 from .engines.base import TTSEngine
 
 
@@ -64,6 +66,45 @@ class Converter:
         if not os.path.exists(wav_path):
             self.engine.synthesize_to_file(spoken, wav_path, voice=voice, speed=speed)
         return wav_path
+
+    def _synthesize_words(self, text, voice, speed):
+        """:meth:`_synthesize`, also returning per-word times when available.
+
+        Word times are cached in a sidecar JSON beside the WAV. Without it, a
+        cache hit would return audio but no timings, so a re-run would silently
+        downgrade a book to sentence-level highlighting.
+        """
+        spoken = textnorm.for_speech(text)
+        wav_path = self._chunk_path(voice, speed, spoken)
+        words_path = wav_path + ".words.json"
+
+        if os.path.exists(wav_path):
+            if not os.path.exists(words_path):
+                return wav_path, None
+            try:
+                with open(words_path, encoding="utf-8") as handle:
+                    raw = json.load(handle)
+                return wav_path, [
+                    engines_base.WordSpan(item["t"], item["b"], item["e"])
+                    for item in raw
+                ]
+            except (OSError, ValueError, KeyError):
+                # A truncated sidecar shouldn't fail the whole conversion.
+                return wav_path, None
+
+        _, spans = self.engine.synthesize_with_words(
+            spoken, wav_path, voice=voice, speed=speed)
+
+        if spans:
+            tmp = words_path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as handle:
+                json.dump(
+                    [{"t": s.text, "b": s.begin, "e": s.end} for s in spans],
+                    handle,
+                )
+            os.replace(tmp, words_path)
+
+        return wav_path, spans
 
     def convert(self, input_path, *, voice, speed, out_fmt="mp3", bitrate="128k",
                 gap=config.CHUNK_GAP_SECONDS, out_name=None, output_mode="single",
@@ -257,14 +298,24 @@ class Converter:
                             cursor += audio.wav_seconds(sil, sr)
 
                     begin = cursor
+                    words: list[epub3.Word] = []
                     for piece in pieces:
-                        wav_path = self._synthesize(piece, voice, speed)
+                        piece_start = cursor
+                        wav_path, spans = self._synthesize_words(piece, voice, speed)
                         timeline.append(wav_path)
                         cursor += audio.wav_seconds(wav_path, sr)
+                        # Engine times are relative to the piece's own WAV; shift
+                        # them to where that WAV lands in the chapter.
+                        for span in spans or ():
+                            words.append(epub3.Word(
+                                span.text,
+                                piece_start + span.begin,
+                                piece_start + span.end,
+                            ))
                         done += 1
                         yield Progress("synth", done, total,
                                        f"Synthesized {done}/{total} sentence unit(s)")
-                    ep_sentences.append(epub3.Sentence(text, begin, cursor))
+                    ep_sentences.append(epub3.Sentence(text, begin, cursor, words))
                 if ep_sentences:
                     ep_paragraphs.append(ep_sentences)
 
@@ -280,6 +331,14 @@ class Converter:
                 if flat:
                     flat[-1].end = cursor
 
+                # Same reasoning one level down: without this the word highlight
+                # blanks out in the silence between words and sentences.
+                words = [w for s in flat for w in s.words]
+                for cur_w, next_w in zip(words, words[1:]):
+                    cur_w.end = next_w.begin
+                if words:
+                    words[-1].end = cursor
+
             if one_file:
                 # Append to the shared track and shift this chapter's timings
                 # to where they land in it. A chapter break gets the full gap.
@@ -292,6 +351,9 @@ class Converter:
                     for sentence in para:
                         sentence.begin += offset
                         sentence.end += offset
+                        for word in sentence.words:
+                            word.begin += offset
+                            word.end += offset
                 book_timeline.extend(timeline)
                 book_cursor = offset + cursor
                 ep_chapters.append(epub3.Chapter(

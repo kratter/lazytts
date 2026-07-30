@@ -165,6 +165,7 @@ no forced alignment, so text and speech cannot drift apart.
 | Universal (max compatibility) | m4a | Flat SMIL + EPUB 2 NCX fallback. Start here. |
 | Thorium Reader (desktop) | m4a | Per-paragraph `<seq epub:textref>` structure. |
 | Storyteller (Android / iOS) | mp3 | For the [Storyteller](https://storyteller-platform.dev/) app. |
+| lazyREADER (word-by-word) | mp3 | One `<par>` per **word**, inside a `<seq>` per sentence, so the reader highlights the word being spoken. Needs Kokoro (it reports word timings); falls back to sentence-level for any chapter without them. |
 
 Two more controls sit next to it. **Read-along audio** picks the narration
 container (the main **Format** dropdown doesn't apply — this audio lives inside

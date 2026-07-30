@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import soundfile as sf
 
-from .base import TTSEngine
+from .base import TTSEngine, WordSpan
 
 
 class KokoroEngine(TTSEngine):
@@ -50,17 +50,52 @@ class KokoroEngine(TTSEngine):
         return self._pipelines[lang]
 
     def synthesize_to_file(self, text, out_path, *, voice=None, speed=None) -> str:
+        path, _ = self.synthesize_with_words(
+            text, out_path, voice=voice, speed=speed
+        )
+        return path
+
+    def synthesize_with_words(self, text, out_path, *, voice=None, speed=None):
+        """Synthesize *text*, keeping Kokoro's per-word timings.
+
+        Kokoro already computes these: KPipeline calls join_timestamps() with the
+        model's predicted durations, filling MToken.start_ts/end_ts. They were
+        previously discarded by unpacking the Result as a 3-tuple, which only
+        exposes (graphemes, phonemes, audio).
+
+        Each Result's timestamps are relative to its own audio segment, so they
+        are shifted by the audio already emitted for this file.
+        """
         self.load()
         voice = voice or self.voice
         speed = speed if speed is not None else self.speed
 
         pipeline = self._pipeline_for(voice)
         parts: list[np.ndarray] = []
-        for _, _, audio in pipeline(text, voice=voice, speed=speed):
+        spans: list[WordSpan] = []
+        offset = 0.0
+
+        for result in pipeline(text, voice=voice, speed=speed):
+            audio = result.audio
+            if audio is None:
+                continue
             if hasattr(audio, "detach"):  # torch tensor
                 audio = audio.detach().cpu().numpy()
-            parts.append(np.asarray(audio, dtype=np.float32).reshape(-1))
+            chunk = np.asarray(audio, dtype=np.float32).reshape(-1)
+            parts.append(chunk)
+
+            for token in result.tokens or ():
+                word = (token.text or "").strip()
+                if not word or token.start_ts is None or token.end_ts is None:
+                    continue
+                spans.append(WordSpan(
+                    word,
+                    offset + float(token.start_ts),
+                    offset + float(token.end_ts),
+                ))
+
+            offset += len(chunk) / self.sample_rate
 
         audio = np.concatenate(parts) if parts else np.zeros(1, dtype=np.float32)
         sf.write(out_path, audio, self.sample_rate)
-        return out_path
+        return out_path, (spans or None)

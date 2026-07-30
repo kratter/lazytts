@@ -46,11 +46,23 @@ _NS_NCX = "http://www.daisy.org/z3986/2005/ncx/"
 
 
 @dataclass
+class Word:
+    """One word and where it sits in the chapter audio."""
+    text: str
+    begin: float
+    end: float
+
+
+@dataclass
 class Sentence:
     """One highlightable unit: its text and where it sits in the chapter audio."""
     text: str
     begin: float
     end: float
+    #: Per-word timings when the engine could report them (Kokoro can). Empty
+    #: means sentence-level only, and the export falls back to one <par> per
+    #: sentence.
+    words: list[Word] = field(default_factory=list)
 
 
 @dataclass
@@ -154,6 +166,17 @@ class _ChapterFiles:
     def span_id(self, para: int, sent: int) -> str:
         return f"c{self.index}p{para}s{sent}"
 
+    def word_id(self, para: int, sent: int, word: int) -> str:
+        return f"{self.span_id(para, sent)}w{word}"
+
+    def _words_enabled(self, sentences: list[Sentence]) -> bool:
+        # All or nothing per chapter: mixing word-level and sentence-level <par>s
+        # would make some sentences highlight a word at a time and others a whole
+        # sentence, which reads as a bug.
+        return bool(self.profile.get("word_level")) and all(
+            sent.words for sent in sentences
+        )
+
     def xhtml(self, book_title: str, lang: str) -> str:
         lines = [
             '<?xml version="1.0" encoding="utf-8"?>',
@@ -169,8 +192,22 @@ class _ChapterFiles:
             f'  <h1 class="chapter-title">{escape(self.title)}</h1>',
         ]
         for p, sentences in enumerate(self.chapter.paragraphs, 1):
+            words_on = self._words_enabled(sentences)
             spans = " ".join(
-                f'<span id="{self.span_id(p, s)}">{escape(sent.text)}</span>'
+                f'<span id="{self.span_id(p, s)}">'
+                + (
+                    # Nest a span per word so word-level <par>s have something to
+                    # point at. The sentence span stays, so readers (and our own
+                    # app) can still find the whole sentence around a word.
+                    " ".join(
+                        f'<span id="{self.word_id(p, s, w)}">'
+                        f"{escape(word.text)}</span>"
+                        for w, word in enumerate(sent.words, 1)
+                    )
+                    if words_on
+                    else escape(sent.text)
+                )
+                + "</span>"
                 for s, sent in enumerate(sentences, 1)
             )
             lines.append(f'  <p id="{self._para_id(p)}">{spans}</p>')
@@ -199,8 +236,34 @@ class _ChapterFiles:
                     f'epub:type="paragraph">'
                 )
                 indent = "    "
+            words_on = self._words_enabled(sentences)
             for s, sent in enumerate(sentences, 1):
                 sid = self.span_id(p, s)
+                if words_on:
+                    # A <seq> per sentence around word-level <par>s: the textref
+                    # keeps the sentence addressable, so a reader that wants to
+                    # highlight sentences still can, while readers that follow
+                    # the <par>s highlight one word at a time.
+                    lines.append(
+                        f'{indent}<seq id="seq_{sid}" '
+                        f'epub:textref="{text_rel}#{sid}" '
+                        f'epub:type="sentence">'
+                    )
+                    for w, word in enumerate(sent.words, 1):
+                        wid = self.word_id(p, s, w)
+                        lines.append(f'{indent}  <par id="par_{wid}">')
+                        lines.append(
+                            f'{indent}    <text src="{text_rel}#{wid}"/>'
+                        )
+                        lines.append(
+                            f'{indent}    <audio src="{audio_rel}" '
+                            f'clipBegin="{clock(word.begin)}" '
+                            f'clipEnd="{clock(word.end)}"/>'
+                        )
+                        lines.append(f"{indent}  </par>")
+                    lines.append(f"{indent}</seq>")
+                    continue
+
                 lines.append(f'{indent}<par id="par_{sid}">')
                 lines.append(f'{indent}  <text src="{text_rel}#{sid}"/>')
                 lines.append(
