@@ -576,9 +576,27 @@ def download_and_install_update(progress=gr.Progress(track_tqdm=True)):
             launched = True
     except Exception:
         pass
-    tail = ("the installer just opened — follow its steps and close lazyTTS when asked."
-            if launched else f"run it from:\n`{dest}`")
-    return f"⬇️ Downloaded **{info['asset_name']}** — {tail}"
+    if not launched:
+        return (f"⬇️ Downloaded **{info['asset_name']}** — run it from:\n"
+                f"`{dest}`")
+
+    # The installer replaces files under {app}, including the .venv this process
+    # is running from, so lazyTTS has to be gone before it gets that far. Quit
+    # ourselves rather than asking the user to: a few seconds is long enough for
+    # Gradio to deliver this message and for the wizard to take focus. The
+    # installer offers to relaunch lazyTTS on its final page.
+    def _exit_for_installer():
+        time.sleep(4)
+        print("lazyTTS: quitting so the updater can replace files.", flush=True)
+        _clear_cache_if_enabled()  # os._exit skips atexit, so clear here
+        os._exit(0)
+
+    threading.Thread(target=_exit_for_installer,
+                     name="lazytts-update-exit", daemon=True).start()
+
+    return (f"⬇️ Downloaded **{info['asset_name']}** — the installer is opening "
+            "and lazyTTS will close itself in a few seconds. Tick "
+            "**Launch lazyTTS** on the installer's last page to come back.")
 
 
 # ── Model manager (built-in downloader) ──────────────────────────
