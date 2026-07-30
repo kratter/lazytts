@@ -187,8 +187,11 @@ network. Press **Start sharing**, then scan the QR code in the app's *Sync*
 screen (or type the address in). It's read-only and only listens while switched
 on: it serves the `.epub` files in your output folder and nothing else.
 
-The profile differences are small — Media Overlays is one standard — so
-Universal is usually the right choice. Readers known to support Media Overlays:
+The profile differences are small — Media Overlays is one standard. **lazyREADER
+(word-by-word)** is the default because word-level highlighting is the point of
+the read-along export here; pick **Universal** if you're targeting a third-party
+reader, since a `<par>` per word is a lot more of them and not every reader
+copes gracefully. Readers known to support Media Overlays:
 Thorium Reader (Windows/macOS/Linux), Thorium Mobile, Storyteller, BookFusion, Dolphin
 EasyReader, and Apple Books. Note that several popular Android readers
 (Moon+ Reader, ReadEra, Librera) and Google Play Books do **not** — they'll open

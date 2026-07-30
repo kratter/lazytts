@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "lazyTTS — eBook to Audiobook"
-APP_VERSION = "0.9.4"
+APP_VERSION = "0.9.5"
 # owner/repo used for the in-app update check + release links.
 GITHUB_REPO = "kratter/lazytts"
 
@@ -116,7 +116,7 @@ EPUB3_PROFILES = {
         "word_level": True,
     },
 }
-DEFAULT_EPUB3_PROFILE = "Universal (max compatibility)"
+DEFAULT_EPUB3_PROFILE = "lazyREADER (word-by-word)"
 
 # Narration container for the read-along. The main Format dropdown doesn't
 # apply here: the audio lives inside the .epub, so it has to be something
