@@ -63,6 +63,10 @@ class Sentence:
     #: means sentence-level only, and the export falls back to one <par> per
     #: sentence.
     words: list[Word] = field(default_factory=list)
+    #: Optional translation, shown under the sentence in bilingual exports. It
+    #: is never narrated and never part of the overlay — the audio stays in the
+    #: book's own language.
+    translation: str = ""
 
 
 @dataclass
@@ -79,7 +83,7 @@ class Chapter:
 
 def build(out_path: str, *, chapters: list[Chapter], metadata: dict | None = None,
           profile: dict | None = None, lang: str = "en", narrator: str = "",
-          cover_path: str | None = None) -> str:
+          cover_path: str | None = None, gloss_lang: str = "") -> str:
     """Package *chapters* into an EPUB 3 with Media Overlays at *out_path*."""
     if not chapters:
         raise ValueError("No chapters to write.")
@@ -95,7 +99,7 @@ def build(out_path: str, *, chapters: list[Chapter], metadata: dict | None = Non
 
     docs: list[_ChapterFiles] = []
     for i, ch in enumerate(chapters, 1):
-        docs.append(_ChapterFiles(ch, i, prof))
+        docs.append(_ChapterFiles(ch, i, prof, gloss_lang=gloss_lang))
 
     with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zf:
         # "mimetype" must be the first entry and stored uncompressed.
@@ -145,10 +149,12 @@ def build(out_path: str, *, chapters: list[Chapter], metadata: dict | None = Non
 class _ChapterFiles:
     """Filenames, ids and serialization for one chapter."""
 
-    def __init__(self, chapter: Chapter, index: int, profile: dict):
+    def __init__(self, chapter: Chapter, index: int, profile: dict,
+                 gloss_lang: str = ""):
         self.chapter = chapter
         self.index = index
         self.profile = profile
+        self.gloss_lang = gloss_lang
         self.stem = f"ch{index:03d}"
         self.xhtml_href = f"text/{self.stem}.xhtml"
         self.smil_href = f"smil/{self.stem}.smil"
@@ -194,25 +200,40 @@ class _ChapterFiles:
         for p, sentences in enumerate(self.chapter.paragraphs, 1):
             words_on = self._words_enabled(sentences)
             spans = " ".join(
-                f'<span id="{self.span_id(p, s)}">'
-                + (
-                    # Nest a span per word so word-level <par>s have something to
-                    # point at. The sentence span stays, so readers (and our own
-                    # app) can still find the whole sentence around a word.
-                    " ".join(
-                        f'<span id="{self.word_id(p, s, w)}">'
-                        f"{escape(word.text)}</span>"
-                        for w, word in enumerate(sent.words, 1)
-                    )
-                    if words_on
-                    else escape(sent.text)
-                )
-                + "</span>"
+                self._sentence_html(p, s, sent, words_on)
                 for s, sent in enumerate(sentences, 1)
             )
             lines.append(f'  <p id="{self._para_id(p)}">{spans}</p>')
         lines += ["</section>", "</body>", "</html>", ""]
         return "\n".join(lines)
+
+    def _sentence_html(self, p: int, s: int, sent: Sentence, words_on: bool) -> str:
+        """One sentence span, followed by its gloss in a bilingual export."""
+        if words_on:
+            # Nest a span per word so word-level <par>s have something to point
+            # at. The sentence span stays, so readers (and our own app) can
+            # still find the whole sentence around a word.
+            inner = " ".join(
+                f'<span id="{self.word_id(p, s, w)}">{escape(word.text)}</span>'
+                for w, word in enumerate(sent.words, 1)
+            )
+        else:
+            inner = escape(sent.text)
+
+        html = f'<span id="{self.span_id(p, s)}">{inner}</span>'
+        if sent.translation:
+            # Deliberately *outside* the sentence span: inside it, a reader's
+            # sentence highlight would cover the translation too, and our own
+            # player would take the gloss for part of the narrated text.
+            html += (f'<span class="gloss"{self._gloss_lang_attr()}>'
+                     f"{escape(sent.translation)}</span>")
+        return html
+
+    def _gloss_lang_attr(self) -> str:
+        if not self.gloss_lang:
+            return ""
+        code = quoteattr(self.gloss_lang)
+        return f" xml:lang={code} lang={code}"
 
     def _para_id(self, para: int) -> str:
         return f"c{self.index}p{para}"
@@ -301,6 +322,15 @@ def _stylesheet(active_class: str) -> str:
         "body { line-height: 1.6; margin: 1em; }\n"
         ".chapter-title { font-size: 1.4em; margin: 1em 0 0.8em; }\n"
         "p { margin: 0 0 0.9em; text-indent: 0; }\n"
+        # The translation reads as an aside, not as part of the prose: set apart
+        # on its own line, lighter and a little smaller.
+        ".gloss {\n"
+        "  display: block;\n"
+        "  font-style: italic;\n"
+        "  font-size: 0.9em;\n"
+        "  opacity: 0.66;\n"
+        "  margin: 0.1em 0 0.6em;\n"
+        "}\n"
         f".{cls}, span.{cls} {{\n"
         "  background-color: #ffe9a8;\n"
         "  color: inherit;\n"

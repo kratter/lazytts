@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "lazyTTS — eBook to Audiobook"
-APP_VERSION = "0.10.0"
+APP_VERSION = "0.11.0"
 # owner/repo used for the in-app update check + release links.
 GITHUB_REPO = "kratter/lazytts"
 
@@ -253,11 +253,29 @@ TRANSLATE_TARGETS = {
 }
 DEFAULT_TRANSLATE_TARGET = "Off — keep original language"
 
+# "Bilingual read-along" dropdown: adds a translation line under every sentence
+# of an EPUB 3 export while the narration stays in the original language. Same
+# codes as above; a separate dict because the "off" label reads differently.
+BILINGUAL_TARGETS = {
+    "Off — original text only": None,
+    "Hungarian (Magyar)": "hun_Latn",
+    "German (Deutsch)": "deu_Latn",
+    "English": "eng_Latn",
+    "French (Français)": "fra_Latn",
+    "Spanish (Español)": "spa_Latn",
+    "Italian (Italiano)": "ita_Latn",
+}
+DEFAULT_BILINGUAL_TARGET = "Off — original text only"
+
 # Source language: map the (num2words) text-language code -> NLLB source code.
 NLLB_SOURCE_CODES = {
     "en": "eng_Latn", "de": "deu_Latn", "hu": "hun_Latn",
     "fr": "fra_Latn", "es": "spa_Latn", "it": "ita_Latn", "pt": "por_Latn",
 }
+
+# NLLB code -> BCP-47, for tagging the language of a bilingual gloss so readers
+# hyphenate and pronounce it correctly. Derived from the map above.
+BCP47_FOR_NLLB = {code: tag for tag, code in NLLB_SOURCE_CODES.items()}
 
 # When a target language is picked, suggest an engine + voice that speaks it
 # (Kokoro is English-only, so translated output routes through Piper).

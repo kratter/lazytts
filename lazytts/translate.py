@@ -90,6 +90,46 @@ def count_chunks(text: str) -> int:
     return n
 
 
+def translate_lines(lines: list[str], src_code: str, tgt_code: str,
+                    device="cpu", batch_size: int = 8, progress=None) -> list[str]:
+    """Translate many short strings, batched, returning one result per input.
+
+    Bilingual read-along needs a translation per *sentence* — thousands of tiny
+    calls, where one-at-a-time is dominated by per-call overhead. Batching cuts
+    that by roughly the batch size. `progress` is called once per input string.
+    """
+    if not lines:
+        return []
+    if src_code == tgt_code:
+        return list(lines)
+    import torch
+
+    tok, model, dev = _load(device)
+    tok.src_lang = src_code
+    bos = _target_bos(tok, tgt_code)
+
+    out: list[str] = [""] * len(lines)
+    # Only non-blank lines go to the model; blanks keep their empty result.
+    todo = [i for i, line in enumerate(lines) if line and line.strip()]
+
+    for start in range(0, len(todo), batch_size):
+        batch = todo[start:start + batch_size]
+        enc = tok([lines[i].strip() for i in batch], return_tensors="pt",
+                  padding=True, truncation=True, max_length=512).to(dev)
+        with torch.no_grad():
+            gen = model.generate(
+                **enc, forced_bos_token_id=bos,
+                max_length=512, num_beams=2, no_repeat_ngram_size=3,
+            )
+        for i, decoded in zip(batch, tok.batch_decode(gen, skip_special_tokens=True)):
+            out[i] = decoded.strip()
+        if progress:
+            for _ in batch:
+                progress()
+
+    return out
+
+
 def translate_text(text: str, src_code: str, tgt_code: str,
                    device="cpu", progress=None) -> str:
     """Translate `text` from `src_code` to `tgt_code` (NLLB FLORES-200 codes).

@@ -173,6 +173,18 @@ the `.epub`, so it has to be something readers can decode); *Profile default*
 follows the table above. **Narration files** chooses one audio file per chapter
 or a single track for the whole book.
 
+**Bilingual read-along** adds a translated line under every sentence, while the
+narration stays in the original language — you hear the book as written and read
+the meaning underneath. It uses the same offline NLLB-200 model as *Translate to*
+(download it once under **Settings → Models**), but translates sentence by
+sentence so each line sits with the sentence it belongs to. The translation is
+never narrated and never part of the overlay, so highlighting and sync are
+unaffected; readers that don't style it still show it as an italic aside.
+
+That's different from **Translate to**, which replaces the book's text *and* has
+it narrated in the target language. Use *Translate to* to read a foreign book in
+your own language, and *Bilingual read-along* to learn the foreign one.
+
 Prefer **one file per chapter**. Both are spec-legal, but a single whole-book
 track pushes clip offsets hours into one file, where readers seek less
 accurately (especially VBR MP3) and have to buffer far more to play any

@@ -111,11 +111,15 @@ class Converter:
                 normalize=True, expand=False, lang="en", metadata=None, cover=None,
                 audio_filter=None, chapters=None,
                 translate_to=None, translate_src="eng_Latn", translate_device="cpu",
+                bilingual_to=None,
                 channels=1, two_pass=False, lexicon=None, epub3_profile=None,
                 epub3_audio_fmt=None, epub3_layout="per_chapter"):
         # output_mode: "single" | "split" | "m4b" | "epub3"
         # chapters: optional pre-extracted/-selected list[Chapter]; if None, extract.
         # translate_to: NLLB target code (e.g. "deu_Latn") or None to keep original.
+        # bilingual_to: NLLB target code for a translation line under each
+        # sentence of a read-along export. Unlike translate_to it leaves the
+        # narrated text alone — read-along output only.
         if chapters is None:
             chapters = document.extract_chapters(
                 input_path, normalize=normalize, expand=expand, lang=lang)
@@ -166,7 +170,11 @@ class Converter:
                 metadata=metadata, cover=cover, audio_filter=audio_filter,
                 bitrate=bitrate, channels=channels, two_pass=two_pass,
                 profile=epub3_profile, audio_fmt=epub3_audio_fmt,
-                layout=epub3_layout)
+                layout=epub3_layout, bilingual_to=bilingual_to,
+                # The text has already been translated by now if translate_to
+                # was set, so the gloss's source is whatever is being spoken.
+                translate_src=translate_to or translate_src,
+                translate_device=translate_device)
             return
 
         # Chunk each chapter; keep chunks grouped by chapter.
@@ -220,7 +228,9 @@ class Converter:
 
     def _convert_epub3(self, chapters, *, voice, speed, gap, out_name, lang,
                        metadata, cover, audio_filter, bitrate, channels,
-                       two_pass, profile=None, audio_fmt=None, layout="per_chapter"):
+                       two_pass, profile=None, audio_fmt=None, layout="per_chapter",
+                       bilingual_to=None, translate_src="eng_Latn",
+                       translate_device="cpu"):
         """Synthesize one WAV per sentence and package an EPUB 3 read-along.
 
         Timings come straight from the generated audio's frame counts, so text
@@ -265,6 +275,34 @@ class Converter:
         yield Progress("chunked", 0, total,
                        f"{len(chapters)} chapter(s), {total} sentence unit(s){note}.")
 
+        # Bilingual: one translation per sentence, keyed by where the sentence
+        # sits so an empty chapter later can't shift the alignment.
+        glosses: dict[tuple[int, int, int], str] = {}
+        if bilingual_to and bilingual_to != translate_src:
+            from . import translate as _translate
+            keys = [(c, p, s)
+                    for c, paragraphs in enumerate(per_chapter)
+                    for p, units in enumerate(paragraphs)
+                    for s in range(len(units))]
+            texts = [per_chapter[c][p][s][0] for c, p, s in keys]
+            g_done = 0
+            yield Progress("translating", 0, len(texts) or 1,
+                           f"Loading translator & translating {len(texts)} sentence(s)…")
+            counter = {"n": 0}
+
+            def _tick(_c=counter):
+                _c["n"] += 1
+
+            # One call: batching is what makes per-sentence translation bearable,
+            # so progress can only be reported around it, not during it.
+            values = _translate.translate_lines(
+                texts, translate_src, bilingual_to,
+                device=translate_device, progress=_tick)
+            g_done = counter["n"]
+            glosses = dict(zip(keys, values))
+            yield Progress("translating", g_done, len(texts) or 1,
+                           f"Translated {g_done} sentence(s)")
+
         base = _safe_name(out_name)
         stage_dir = os.path.join(self.cache_dir, "_epub3", base)
         os.makedirs(stage_dir, exist_ok=True)
@@ -280,6 +318,7 @@ class Converter:
         ep_chapters: list[epub3.Chapter] = []
         done = 0
         for idx, (ch, paragraphs) in enumerate(zip(chapters, per_chapter), 1):
+            c_idx = idx - 1
             timeline: list[str] = []   # chapter audio in order, silence included
             cursor = 0.0               # seconds consumed so far
             ep_paragraphs: list[list[epub3.Sentence]] = []
@@ -315,7 +354,9 @@ class Converter:
                         done += 1
                         yield Progress("synth", done, total,
                                        f"Synthesized {done}/{total} sentence unit(s)")
-                    ep_sentences.append(epub3.Sentence(text, begin, cursor, words))
+                    ep_sentences.append(epub3.Sentence(
+                        text, begin, cursor, words,
+                        translation=glosses.get((c_idx, p_idx, s_idx), "")))
                 if ep_sentences:
                     ep_paragraphs.append(ep_sentences)
 
@@ -391,7 +432,8 @@ class Converter:
         out_path = os.path.join(self.output_dir, f"{base}.epub")
         yield Progress("assembling", total, total, "Packaging EPUB 3 read-along…")
         epub3.build(out_path, chapters=ep_chapters, metadata=metadata,
-                    profile=prof, lang=lang, narrator=voice, cover_path=cover)
+                    profile=prof, lang=lang, narrator=voice, cover_path=cover,
+                    gloss_lang=config.BCP47_FOR_NLLB.get(bilingual_to or "", ""))
 
         # The per-chapter encodes are inside the .epub now.
         shutil.rmtree(stage_dir, ignore_errors=True)

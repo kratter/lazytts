@@ -258,6 +258,7 @@ _SETTINGS_KEYS = [
     "loudness", "gain", "cleanup", "trim_silence", "two_pass", "stereo",
     "out_mode", "fmt", "bitrate", "normalize", "expand",
     "text_lang", "translate_to", "epub3_profile", "epub3_audio_fmt", "epub3_layout",
+    "epub3_bilingual",
 ]
 
 
@@ -687,6 +688,7 @@ def convert_action(
     file, engine_name, kokoro_voice, piper_voice, mms_voice, xtts_voice, xtts_clone, speed, device_label,
     out_fmt, bitrate, gap, loudness_label, gain, cleanup_flag, trim_flag, two_pass_flag, stereo_flag,
     output_mode, epub3_profile, epub3_audio_label, epub3_layout_label,
+    epub3_bilingual_label,
     normalize_flag, expand_flag, text_lang, translate_label,
     title, author, cover,
     chapters_state, selected_labels, edited_text, use_edited, lexicon_text,
@@ -724,7 +726,7 @@ def convert_action(
         out_mode=output_mode, fmt=out_fmt, bitrate=bitrate, normalize=normalize_flag,
         expand=expand_flag, text_lang=text_lang, translate_to=translate_label,
         epub3_profile=epub3_profile, epub3_audio_fmt=epub3_audio_label,
-        epub3_layout=epub3_layout_label,
+        epub3_layout=epub3_layout_label, epub3_bilingual=epub3_bilingual_label,
     )
 
     mode = OUTPUT_MODES.get(output_mode, "single")
@@ -756,6 +758,7 @@ def convert_action(
             epub3_audio_fmt=config.EPUB3_AUDIO_FORMATS.get(epub3_audio_label),
             epub3_layout=config.EPUB3_AUDIO_LAYOUTS.get(
                 epub3_layout_label, "per_chapter"),
+            bilingual_to=config.BILINGUAL_TARGETS.get(epub3_bilingual_label),
         ):
             pct = int(ev.fraction * 100)
             extra = ""
@@ -784,6 +787,7 @@ def batch_convert(
     files, engine_name, kokoro_voice, piper_voice, mms_voice, xtts_voice, xtts_clone, speed, device_label,
     out_fmt, bitrate, gap, loudness_label, gain, cleanup_flag, trim_flag, two_pass_flag, stereo_flag,
     output_mode, epub3_profile, epub3_audio_label, epub3_layout_label,
+    epub3_bilingual_label,
     normalize_flag, expand_flag, text_lang, translate_label,
     lexicon_text,
 ):
@@ -831,6 +835,7 @@ def batch_convert(
                 epub3_audio_fmt=config.EPUB3_AUDIO_FORMATS.get(epub3_audio_label),
                 epub3_layout=config.EPUB3_AUDIO_LAYOUTS.get(
                     epub3_layout_label, "per_chapter"),
+                bilingual_to=config.BILINGUAL_TARGETS.get(epub3_bilingual_label),
             ):
                 final = ev
                 lines[-1] = f"[{idx}/{n}] {name}: [{int(ev.fraction * 100):3d}%] {ev.message}"
@@ -1085,6 +1090,16 @@ def build_ui() -> gr.Blocks:
                         label="Narration files",
                         info="Per chapter keeps clip offsets small and seeks "
                              "more accurately than one long track.")
+                epub3_bilingual_dd = gr.Dropdown(
+                    list(config.BILINGUAL_TARGETS.keys()),
+                    value=sv_in("epub3_bilingual",
+                                list(config.BILINGUAL_TARGETS.keys()),
+                                config.DEFAULT_BILINGUAL_TARGET),
+                    label="Bilingual read-along (offline · NLLB-200)",
+                    info="Adds a translation under every sentence. The narration "
+                         "stays in the original language — this is for reading "
+                         "along in a language you're learning.",
+                    visible=OUTPUT_MODES.get(mode_val) == "epub3")
                 with gr.Row():
                     fmt_dd = gr.Dropdown(config.OUTPUT_FORMATS, value=fmt_val, label="Format")
                     bitrate_dd = gr.Dropdown(config.MP3_BITRATES, value=br_val, label="Bitrate",
@@ -1293,14 +1308,15 @@ def build_ui() -> gr.Blocks:
             fmt_dd, bitrate_dd, gap_sl, loudness_dd, gain_sl,
             cleanup_cb, trim_cb, two_pass_cb, stereo_cb,
             output_mode, epub3_profile_dd, epub3_audio_dd, epub3_layout_dd,
+            epub3_bilingual_dd,
             normalize_cb, expand_cb, text_lang_dd, translate_dd,
         ]
 
         # The read-along controls only matter for the EPUB 3 mode.
         output_mode.change(
-            lambda m: (gr.update(visible=OUTPUT_MODES.get(m) == "epub3"),
-                       gr.update(visible=OUTPUT_MODES.get(m) == "epub3")),
-            inputs=output_mode, outputs=[epub3_profile_dd, epub3_audio_row])
+            lambda m: (gr.update(visible=OUTPUT_MODES.get(m) == "epub3"),) * 3,
+            inputs=output_mode,
+            outputs=[epub3_profile_dd, epub3_audio_row, epub3_bilingual_dd])
 
         run_event = convert_btn.click(
             convert_action,
