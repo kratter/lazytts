@@ -25,6 +25,12 @@ from .engines import base as engines_base
 from .engines.base import TTSEngine
 
 
+#: Sentences per bilingual-translation slice. Small enough that the progress bar
+#: moves every few seconds, large enough to give translate_lines' length-grouping
+#: a useful spread of sentences to work with.
+_TRANSLATE_SLICE = 256
+
+
 @dataclass
 class Progress:
     stage: str          # "chunked" | "synth" | "assembling" | "done"
@@ -285,23 +291,20 @@ class Converter:
                     for p, units in enumerate(paragraphs)
                     for s in range(len(units))]
             texts = [per_chapter[c][p][s][0] for c, p, s in keys]
-            g_done = 0
             yield Progress("translating", 0, len(texts) or 1,
                            f"Loading translator & translating {len(texts)} sentence(s)…")
-            counter = {"n": 0}
-
-            def _tick(_c=counter):
-                _c["n"] += 1
-
-            # One call: batching is what makes per-sentence translation bearable,
-            # so progress can only be reported around it, not during it.
-            values = _translate.translate_lines(
-                texts, translate_src, bilingual_to,
-                device=translate_device, progress=_tick)
-            g_done = counter["n"]
+            # In slices rather than one call, so the progress bar keeps moving:
+            # a book is thousands of sentences and this is the slowest stage of
+            # the export. The model is cached after the first slice, so the extra
+            # calls cost nothing.
+            values: list[str] = []
+            for start in range(0, len(texts), _TRANSLATE_SLICE):
+                values.extend(_translate.translate_lines(
+                    texts[start:start + _TRANSLATE_SLICE],
+                    translate_src, bilingual_to, device=translate_device))
+                yield Progress("translating", len(values), len(texts),
+                               f"Translated {len(values)}/{len(texts)} sentence(s)")
             glosses = dict(zip(keys, values))
-            yield Progress("translating", g_done, len(texts) or 1,
-                           f"Translated {g_done} sentence(s)")
 
         base = _safe_name(out_name)
         stage_dir = os.path.join(self.cache_dir, "_epub3", base)

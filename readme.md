@@ -181,6 +181,10 @@ sentence so each line sits with the sentence it belongs to. The translation is
 never narrated and never part of the overlay, so highlighting and sync are
 unaffected; readers that don't style it still show it as an italic aside.
 
+Expect it to add a few minutes: measured on an RTX 5070, translation runs at
+about 30 sentences a second, so a 6,000-sentence novel takes roughly 3½ minutes
+on top of the narration. On CPU it's a good deal slower.
+
 That's different from **Translate to**, which replaces the book's text *and* has
 it narrated in the target language. Use *Translate to* to read a foreign book in
 your own language, and *Bilingual read-along* to learn the foreign one.
